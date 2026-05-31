@@ -1,0 +1,48 @@
+# ==========================================
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+README.md
+LICENSE
+docs/
+
+# ==========================================
+.venv
+venv
+env
+.uv
+
+# ==========================================
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache
+.htmlcov
+.coverage
+
+# ==========================================
+data/
+datasets/
+models/
+checkpoints/
+weights/
+.ipynb_checkpoints
+**/*.ipynb
+
+.dvc/cache/
+.dvc/tmp/
+
+# Logs y Métricas de Entrenamiento
+logs/
+runs/
+mlruns/
+.wandb/
+
+# ==========================================
+.env
+.env.*
+.vscode
+.idea

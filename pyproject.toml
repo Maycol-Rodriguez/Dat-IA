@@ -1,0 +1,7 @@
+[project]
+name = "proyecto-final"
+version = "0.1.0"
+description = "Proyecto de fin de curso de PEIAMLOPS"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
