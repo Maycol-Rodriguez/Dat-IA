@@ -6,7 +6,6 @@ env/
 ENV/
 .uv/
 
-data/
 datasets/
 *.csv
 *.jsonl
