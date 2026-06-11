@@ -27,6 +27,70 @@ La solución se compone de 7 módulos principales:
 * **Modelos IA:** 
 * **Observabilidad y MLOps:** LangSmith, Grafana
 
+## Prototipo API
+
+El proyecto incluye una API inicial con FastAPI para validar la base del sistema Dat-IA.
+
+### Ejecutar localmente
+
+```powershell
+uv sync
+uv run uvicorn app.main:app --reload
+```
+
+Abrir la documentación interactiva:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Probar healthcheck:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+Respuesta esperada:
+
+```json
+{
+  "status": "ok",
+  "service": "dat-ia-api",
+  "version": "0.1.0"
+}
+```
+
+### Ejecutar tests
+
+```powershell
+uv run pytest
+uv run ruff check app tests
+```
+
+### Ejecutar con Docker
+
+```powershell
+docker build -t dat-ia-api:local .
+docker run --rm -p 8000:8000 dat-ia-api:local
+```
+
+### Ejecutar con Docker Compose
+
+```powershell
+docker compose up --build
+```
+
+Para detener:
+
+```powershell
+docker compose down
+```
+
+### CI
+
+El repositorio incluye un workflow de GitHub Actions que valida Ruff, Pytest, build de Docker y el endpoint `/health`.
+
+
 ## Dataset Utilizado
 Se utilizará el dataset público **Olist Brazilian E-Commerce** (aprox. 100,000 órdenes de 2016-2018). Su estructura relacional de 9 tablas (clientes, órdenes, pagos, productos, etc.) simula a la perfección el ciclo de una transacción retail, permitiendo formular preguntas complejas que requieren múltiples uniones (JOINs) y análisis temporales o geográficos.
 
