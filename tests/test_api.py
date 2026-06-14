@@ -23,7 +23,7 @@ def test_ready_returns_database_not_configured() -> None:
 
 def test_ask_returns_prototype_response() -> None:
     response = client.post(
-        "/ask",
+        "/query/json",
         json={"question": "¿Cuál fue el total vendido por mes?"},
     )
 
