@@ -7,7 +7,7 @@ from typing import Optional
 from typing import Literal
 
 import chromadb
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
