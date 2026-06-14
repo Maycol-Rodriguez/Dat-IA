@@ -35,6 +35,6 @@ def test_ask_returns_prototype_response() -> None:
 
 
 def test_ask_rejects_empty_question() -> None:
-    response = client.post("/ask", json={"question": ""})
+    response = client.post("/query/json", json={"question": ""})
 
     assert response.status_code == 422
