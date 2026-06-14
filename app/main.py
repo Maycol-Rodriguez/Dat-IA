@@ -4,6 +4,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
+from typing import Literal
 
 import chromadb
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
