@@ -10,7 +10,7 @@ import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1)
     
 
 
