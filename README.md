@@ -95,11 +95,11 @@ El repositorio incluye un workflow de GitHub Actions que valida Ruff, Pytest, bu
 Se utilizará el dataset público **Olist Brazilian E-Commerce** (aprox. 100,000 órdenes de 2016-2018). Su estructura relacional de 9 tablas (clientes, órdenes, pagos, productos, etc.) simula a la perfección el ciclo de una transacción retail, permitiendo formular preguntas complejas que requieren múltiples uniones (JOINs) y análisis temporales o geográficos.
 
 ## Equipo de Trabajo
-* **Stefano Ñuflo Paucar** - 
-* **Rommel Paredes Banda**
-* **Rolando Maycol Rodriguez Mallqui** - 
-* **Marcelo Sebastian Chavez Cisneros**
-* **Yobel Bañes** - 
+* **Stefano Ñuflo Paucar** - Ingeniero de Datos
+* **Rommel Paredes Banda** - Ingeniero DevOps
+* **Rolando Maycol Rodriguez Mallqui** - Científico de Datos
+* **Marcelo Sebastian Chavez Cisneros** - Ingeniero MLOps
+* **Yobel Bañes** - Científico de Datos
 
 ## Roadmap de Implementación (Gantt)
 * **01/06/2026 - 05/06/2026:** Setup, Arquitectura, Dockerización y definición de esquemas.
