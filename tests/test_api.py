@@ -23,7 +23,7 @@ def test_ready_returns_database_not_configured() -> None:
 
 def test_ask_returns_prototype_response() -> None:
     response = client.post(
-        "/ask",
+        "/query/json",
         json={"question": "¿Cuál fue el total vendido por mes?"},
     )
 
@@ -35,6 +35,6 @@ def test_ask_returns_prototype_response() -> None:
 
 
 def test_ask_rejects_empty_question() -> None:
-    response = client.post("/ask", json={"question": ""})
+    response = client.post("/query/json", json={"question": ""})
 
     assert response.status_code == 422

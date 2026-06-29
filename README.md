@@ -71,10 +71,11 @@ uv run ruff check app tests
 
 ```powershell
 docker build -t dat-ia-api:local .
-docker run --rm -p 8000:8000 dat-ia-api:local
+docker run --rm -p 8000:8000 -e GOOGLE_API_KEY=tu_key_aqui dat-ia-api:local
 ```
 
 ### Ejecutar con Docker Compose
+No olvidar agregar el GOOGLE_API_KEY en docker-compose.yml
 
 ```powershell
 docker compose up --build
@@ -95,11 +96,11 @@ El repositorio incluye un workflow de GitHub Actions que valida Ruff, Pytest, bu
 Se utilizará el dataset público **Olist Brazilian E-Commerce** (aprox. 100,000 órdenes de 2016-2018). Su estructura relacional de 9 tablas (clientes, órdenes, pagos, productos, etc.) simula a la perfección el ciclo de una transacción retail, permitiendo formular preguntas complejas que requieren múltiples uniones (JOINs) y análisis temporales o geográficos.
 
 ## Equipo de Trabajo
-* **Stefano Ñuflo Paucar** - 
-* **Rommel Paredes Banda**
-* **Rolando Maycol Rodriguez Mallqui** - 
-* **Marcelo Sebastian Chavez Cisneros**
-* **Yobel Bañes** - 
+* **Stefano Ñuflo Paucar** - Ingeniero de Datos
+* **Rommel Paredes Banda** - Ingeniero DevOps
+* **Rolando Maycol Rodriguez Mallqui** - Científico de Datos
+* **Marcelo Sebastian Chavez Cisneros** - Ingeniero MLOps
+* **Yobel Bañes** - Científico de Datos
 
 ## Roadmap de Implementación (Gantt)
 * **01/06/2026 - 05/06/2026:** Setup, Arquitectura, Dockerización y definición de esquemas.
