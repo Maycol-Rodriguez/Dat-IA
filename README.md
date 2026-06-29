@@ -71,10 +71,11 @@ uv run ruff check app tests
 
 ```powershell
 docker build -t dat-ia-api:local .
-docker run --rm -p 8000:8000 dat-ia-api:local
+docker run --rm -p 8000:8000 -e GOOGLE_API_KEY=tu_key_aqui dat-ia-api:local
 ```
 
 ### Ejecutar con Docker Compose
+No olvidar agregar el GOOGLE_API_KEY en docker-compose.yml
 
 ```powershell
 docker compose up --build

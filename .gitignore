@@ -18,6 +18,7 @@ datasets/
 models/
 checkpoints/
 weights/
+chroma_db/
 *.pkl
 *.joblib
 *.pth
