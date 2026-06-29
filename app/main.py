@@ -4,12 +4,13 @@ import json
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
+from typing import Literal
 
 import chromadb
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -79,15 +80,15 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 class QueryRequest(BaseModel):
-    question: str
-    date_filter: Optional[str] = None   # ej: "2024-01" para solo normas >= esa fecha
-    n_results: int = 3
+    question: str = Field(..., min_length=1)
+    
 
 
 class RAGResponse(BaseModel):
-    answer: str
+    sql: str
     sources: str
     confidence_note: str
+    status: str
 
 
 class IngestResponse(BaseModel):
@@ -206,7 +207,7 @@ Given the database schema, here is the SQL query that answers [QUESTION]{questio
     )
 
     parsed = json.loads(response.text)
-    if "i do not know" in parsed.get("answer", "").lower():
+    if "i do not know" in parsed.get("sql", "").lower():
         parsed["sources"] = ""
 
     return RAGResponse(**parsed)
@@ -277,12 +278,15 @@ async def ingest_document(
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
     if text_collection is None or text_collection.count() == 0:
+        return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
+                           sources="",confidence_note="")
+
         raise HTTPException(503, "Colección vacía. Ingesta documentos primero.")
 
     chunks = retrieve_chunks(request.question, text_collection, n_results=1)
 
     if not chunks:
-        raise HTTPException(404, "No se encontró ninguna tabla relevante.")
+        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
     best = chunks[0]
     return build_rag_response(request.question, best["metadata"]["ddl"])

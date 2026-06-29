@@ -40,7 +40,9 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run -d --name dat-ia-api-ci -p 8000:8000 dat-ia-api:ci
+          docker run -d --name dat-ia-api-ci -p 8000:8000 \
+            -e GOOGLE_API_KEY=dummy-ci-key \
+            dat-ia-api:ci
           sleep 5
 
       - name: Check API health
