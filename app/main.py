@@ -68,6 +68,33 @@ async def lifespan(app: FastAPI):
     print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
+    # Ingesta automática
+    if text_collection.count() == 0:
+            print("[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json...")
+            try:
+                with open("data/ddl.json", "r", encoding="utf-8") as f:
+                    content = json.load(f)
+                
+                chunks = cargar_tablas(content)
+                
+                if chunks:
+                    batch_size = 50
+                    for i in range(0, len(chunks), batch_size):
+                        batch = chunks[i : i + batch_size]
+                        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
+
+                        text_collection.upsert(
+                            ids        = [str(chunk["id"])       for chunk in batch],
+                            documents  = [chunk["descripcion"]   for chunk in batch],
+                            embeddings = embeddings,
+                            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+                        )
+                    print(f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas.")
+            except FileNotFoundError:
+                print("[startup] ADVERTENCIA: No se encontró 'data/ddl.json' para la ingesta inicial.")
+            except Exception as e:
+                print(f"[startup] ERROR durante la ingesta automática: {e}")
+
     # Inicializar SQLPromptShield
     print("[startup] Cargando modelo SQLPromptShield...")
     shield_tokenizer = AutoTokenizer.from_pretrained("salmane11/SQLPromptShield")
