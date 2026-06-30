@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM\
-    , BitsAndBytesConfig, AutoModelForSequenceClassification
+    , AutoModelForSequenceClassification#, BitsAndBytesConfig
 
 
 # ---------------------------------------------------------------------------
