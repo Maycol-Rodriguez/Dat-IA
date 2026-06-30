@@ -8,7 +8,11 @@
       - "8000:8000"
     environment:
       APP_ENV: development
-      GOOGLE_API_KEY: # Tu key acá
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+      # GOOGLE_API_KEY: # Tu key acá
+    volumes:
+      # Esto crea una carpeta local llamada .hf_cache y la conecta a la caché del contenedor
+      - ./.hf_cache:/app/.cache/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

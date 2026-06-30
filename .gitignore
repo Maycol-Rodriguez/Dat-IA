@@ -26,6 +26,7 @@ chroma_db/
 *.onnx
 *.ckpt
 *.pb
+.hf_cache/
 
 
 .ipynb_checkpoints/
@@ -70,3 +71,5 @@ podria_contener_claves.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+notebook.ipynb

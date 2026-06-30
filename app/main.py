@@ -12,6 +12,10 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM\
+    , BitsAndBytesConfig, AutoModelForSequenceClassification
+
 
 # ---------------------------------------------------------------------------
 # Configuración
@@ -29,6 +33,8 @@ gemini_client: genai.Client = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
 image_collection = None
+shield_tokenizer = None
+shield_model = None
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +45,7 @@ image_collection = None
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
     global gemini_client, chroma_client, text_collection, image_collection
+    global shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
@@ -61,6 +68,13 @@ async def lifespan(app: FastAPI):
     print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
+    # Inicializar SQLPromptShield
+    print("[startup] Cargando modelo SQLPromptShield...")
+    shield_tokenizer = AutoTokenizer.from_pretrained("salmane11/SQLPromptShield")
+    shield_model = AutoModelForSequenceClassification.from_pretrained("salmane11/SQLPromptShield")
+    # shield_model.eval() # Recomendado: poner el modelo en modo evaluación
+    print("[startup] SQLPromptShield cargado exitosamente.")
+
     yield  # La app corre entre yield y el bloque de cleanup
 
     # Cleanup (opcional aquí, ChromaDB persiste solo)
@@ -82,9 +96,16 @@ app = FastAPI(
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1)
     
-
+class ShieldRequest(BaseModel):
+    text_input: str
 
 class RAGResponse(BaseModel):
+    sql: str
+    sources: str
+    confidence_note: str
+    status: str
+
+class SHIELDResponse(BaseModel):
     sql: str
     sources: str
     confidence_note: str
@@ -290,3 +311,34 @@ async def query_json(request: QueryRequest):
 
     best = chunks[0]
     return build_rag_response(request.question, best["metadata"]["ddl"])
+
+@app.post("/query/shield", response_model=SHIELDResponse)
+async def sql_shield(request: ShieldRequest):
+    # Usamos las variables globales inicializadas en el lifespan
+    inputs = shield_tokenizer(
+        request.text_input, 
+        return_tensors="pt", 
+        padding=True, 
+        truncation=True, 
+        max_length=128
+    )
+
+    with torch.no_grad():
+        outputs = shield_model(**inputs)
+
+    logits = outputs.logits
+    probabilities = torch.nn.functional.softmax(logits, dim=-1)
+
+    predicted_class_id = torch.argmax(probabilities, dim=-1).item()
+    label = shield_model.config.id2label[predicted_class_id]
+    score = probabilities[0][predicted_class_id].item()
+    
+    # IMPORTANTE: Tu función original retornaba una tupla, pero tienes 
+    # response_model=SHIELDResponse. FastAPI dará error si no devuelves 
+    # la estructura correcta de SHIELDResponse. Aquí te lo adapto:
+    return SHIELDResponse(
+        sql=request.text_input,
+        sources="SQLPromptShield",
+        confidence_note=f"Score: {score:.4f}",
+        status=label
+    )
