@@ -47,7 +47,22 @@ jobs:
 
       - name: Check API health
         run: |
-          curl --fail http://localhost:8000/health
+          for i in {1..60}; do
+            echo "Attempt $i: checking API health..."
+
+            if curl --fail http://localhost:8000/health; then
+              echo "API is healthy"
+              exit 0
+            fi
+
+            echo "API not ready yet. Waiting..."
+            sleep 10
+          done
+
+          echo "API did not become healthy in time"
+          docker ps -a
+          docker logs api-container
+          exit 1
 
       - name: Show container logs on failure
         if: failure()
