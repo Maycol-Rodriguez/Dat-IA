@@ -13,8 +13,8 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM\
-    , AutoModelForSequenceClassification#, BitsAndBytesConfig
+from transformers import AutoTokenizer\
+    , AutoModelForSequenceClassification#, BitsAndBytesConfig, AutoModelForCausalLM
 
 
 # ---------------------------------------------------------------------------
