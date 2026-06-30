@@ -7,6 +7,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV APP_ENV=production
+ENV HF_HOME=/app/.cache/huggingface
 
 COPY pyproject.toml uv.lock ./
 
