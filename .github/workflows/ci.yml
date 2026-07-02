@@ -43,7 +43,7 @@ jobs:
           docker run -d --name dat-ia-api-ci -p 8000:8000 \
             -e GOOGLE_API_KEY=dummy-ci-key \
             dat-ia-api:ci
-          sleep 5
+          sleep 50
 
       - name: Check API health
         run: |
