@@ -19,6 +19,7 @@ models/
 checkpoints/
 weights/
 chroma_db/
+chroma_data/
 *.pkl
 *.joblib
 *.pth

@@ -68,6 +68,33 @@ async def lifespan(app: FastAPI):
     print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
+    # Ingesta automática
+    if text_collection.count() == 0:
+            print("[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json...")
+            try:
+                with open("data/ddl.json", "r", encoding="utf-8") as f:
+                    content = json.load(f)
+                
+                chunks = cargar_tablas(content)
+                
+                if chunks:
+                    batch_size = 50
+                    for i in range(0, len(chunks), batch_size):
+                        batch = chunks[i : i + batch_size]
+                        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
+
+                        text_collection.upsert(
+                            ids        = [str(chunk["id"])       for chunk in batch],
+                            documents  = [chunk["descripcion"]   for chunk in batch],
+                            embeddings = embeddings,
+                            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+                        )
+                    print(f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas.")
+            except FileNotFoundError:
+                print("[startup] ADVERTENCIA: No se encontró 'data/ddl.json' para la ingesta inicial.")
+            except Exception as e:
+                print(f"[startup] ERROR durante la ingesta automática: {e}")
+
     # Inicializar SQLPromptShield
     print("[startup] Cargando modelo SQLPromptShield...")
     shield_tokenizer = AutoTokenizer.from_pretrained("salmane11/SQLPromptShield")
@@ -122,6 +149,12 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     service: str
     version: str
+
+class EmbeddingsResponse(BaseModel):
+    tabla: list[str]
+    descripcion: list[str]
+    distance: list[float]
+    ddl: str
 
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
@@ -189,6 +222,42 @@ def retrieve_chunks(
             results["distances"][0]
         )
     ]
+
+def query_embeddings(collection, query: str, distance_threshold: float = 0.9) -> EmbeddingsResponse:
+    """
+    Consulta vectorial filtrando por distancia semántica.
+    Solo retorna resultados con distancia <= threshold.
+    """
+    query_embedding = embed_texts([query])
+
+    resultados = collection.query(
+        query_embeddings=query_embedding,
+        n_results=10,                        # trae más candidatos
+        include=["metadatas", "documents", "distances"]  # incluir distancias
+    )
+
+    metadatas  = resultados['metadatas'][0]
+    documents  = resultados['documents'][0]
+    distances  = resultados['distances'][0]
+
+    # Filtrar por umbral de distancia
+    filtrados = [
+        (meta, doc, dist)
+        for meta, doc, dist in zip(metadatas, documents, distances)
+        if dist <= distance_threshold
+    ]
+
+    if not filtrados:
+        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="")
+
+    listTablas       = [meta['nombre'] for meta, doc, dist in filtrados]
+    listDescripciones = [doc           for meta, doc, dist in filtrados]
+    listDistances    = [dist          for meta, doc, dist in filtrados]
+    listDdls         = [meta['ddl']    for meta, doc, dist in filtrados]
+
+    ddls = '\n'.join(listDdls)
+
+    return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
 
 
 def build_rag_response(question: str, ddl: str) -> RAGResponse:
@@ -302,15 +371,12 @@ async def query_json(request: QueryRequest):
         return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
                            sources="",confidence_note="")
 
-        raise HTTPException(503, "Colección vacía. Ingesta documentos primero.")
+    resp = query_embeddings(text_collection, request.question, distance_threshold=0.7)
 
-    chunks = retrieve_chunks(request.question, text_collection, n_results=1)
-
-    if not chunks:
+    if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
-    best = chunks[0]
-    return build_rag_response(request.question, best["metadata"]["ddl"])
+    return build_rag_response(request.question, resp.ddl)
 
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
