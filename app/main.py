@@ -153,6 +153,7 @@ class HealthResponse(BaseModel):
 class EmbeddingsResponse(BaseModel):
     tabla: list[str]
     descripcion: list[str]
+    distance: list[float]
     ddl: str
 
 # ---------------------------------------------------------------------------
@@ -222,11 +223,48 @@ def retrieve_chunks(
         )
     ]
 
-def query_embeddings() -> EmbeddingsResponse:
+def query_embeddings(collection, query: str, distance_threshold: float = 0.9) -> EmbeddingsResponse:
     """
-    Consulta vectorial para obtener la tabla con mayor cercanía semántica
+    Consulta vectorial filtrando por distancia semántica.
+    Solo retorna resultados con distancia <= threshold.
     """
-    return EmbeddingsResponse(tabla=['tabla ejemplo'], descripcion=['descripción ejemplo'], ddl='create table...')
+    query_embedding = embed_texts([query])
+
+    resultados = collection.query(
+        query_embeddings=query_embedding,
+        n_results=10,                        # trae más candidatos
+        include=["metadatas", "documents", "distances"]  # incluir distancias
+    )
+
+    metadatas  = resultados['metadatas'][0]
+    documents  = resultados['documents'][0]
+    distances  = resultados['distances'][0]
+
+    # Filtrar por umbral de distancia
+    filtrados = [
+        (meta, doc, dist)
+        for meta, doc, dist in zip(metadatas, documents, distances)
+        if dist <= distance_threshold
+    ]
+    nofiltrados = [
+        ( dist, distance_threshold, dist <= distance_threshold, dist > distance_threshold)
+        for  dist, ign in zip(distances, [None] * len(distances))
+    ]
+
+    # print('no filtrados:', nofiltrados)
+
+    if not filtrados:
+        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="")
+
+    listTablas       = [meta['nombre'] for meta, doc, dist in filtrados]
+    listDescripciones = [doc           for meta, doc, dist in filtrados]
+    listDistances    = [dist          for meta, doc, dist in filtrados]
+    listDdls         = [meta['ddl']    for meta, doc, dist in filtrados]
+
+    ddls = '\n'.join(listDdls)
+
+    return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
+
 
 def build_rag_response(question: str, ddl: str) -> RAGResponse:
     """
@@ -347,7 +385,10 @@ async def query_json(request: QueryRequest):
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
     best = chunks[0]
-    return build_rag_response(request.question, best["metadata"]["ddl"])
+
+    resp = query_embeddings(text_collection, request.question, distance_threshold=0.7)
+
+    return build_rag_response(request.question, resp.ddl)
 
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
