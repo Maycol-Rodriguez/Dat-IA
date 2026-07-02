@@ -150,6 +150,11 @@ class HealthResponse(BaseModel):
     service: str
     version: str
 
+class EmbeddingsResponse(BaseModel):
+    tabla: list[str]
+    descripcion: list[str]
+    ddl: str
+
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
 # ---------------------------------------------------------------------------
@@ -217,6 +222,11 @@ def retrieve_chunks(
         )
     ]
 
+def query_embeddings() -> EmbeddingsResponse:
+    """
+    Consulta vectorial para obtener la tabla con mayor cercanía semántica
+    """
+    return EmbeddingsResponse(tabla=['tabla ejemplo'], descripcion=['descripción ejemplo'], ddl='create table...')
 
 def build_rag_response(question: str, ddl: str) -> RAGResponse:
     """
