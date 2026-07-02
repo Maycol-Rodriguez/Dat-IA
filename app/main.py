@@ -377,16 +377,10 @@ async def query_json(request: QueryRequest):
         return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
                            sources="",confidence_note="")
 
-        raise HTTPException(503, "Colección vacía. Ingesta documentos primero.")
-
-    chunks = retrieve_chunks(request.question, text_collection, n_results=1)
-
-    if not chunks:
-        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
-
-    best = chunks[0]
-
     resp = query_embeddings(text_collection, request.question, distance_threshold=0.7)
+
+    if resp.ddl == "":
+        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
     return build_rag_response(request.question, resp.ddl)
 
