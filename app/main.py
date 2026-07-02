@@ -246,12 +246,6 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.9) ->
         for meta, doc, dist in zip(metadatas, documents, distances)
         if dist <= distance_threshold
     ]
-    nofiltrados = [
-        ( dist, distance_threshold, dist <= distance_threshold, dist > distance_threshold)
-        for  dist, ign in zip(distances, [None] * len(distances))
-    ]
-
-    # print('no filtrados:', nofiltrados)
 
     if not filtrados:
         return EmbeddingsResponse(tabla=[], descripcion=[], ddl="")
