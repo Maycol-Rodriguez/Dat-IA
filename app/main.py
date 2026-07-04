@@ -1,4 +1,4 @@
-﻿"""API FastAPI para consultar esquemas DDL con Gemini y ChromaDB."""
+"""API FastAPI para consultar esquemas DDL con Gemini y ChromaDB."""
 
 import json
 import os
@@ -11,6 +11,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+
+from app.memory.query_memory import (
+    get_or_create_query_memory_collection,
+    save_query_memory,
+    search_query_memory,
+)
 
 import torch
 from transformers import AutoTokenizer\
@@ -32,6 +38,7 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 gemini_client: genai.Client = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
+query_memory_collection = None
 image_collection = None
 shield_tokenizer = None
 shield_model = None
@@ -45,7 +52,7 @@ shield_model = None
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
     global gemini_client, chroma_client, text_collection, image_collection
-    global shield_tokenizer, shield_model
+    global query_memory_collection, shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
@@ -66,6 +73,11 @@ async def lifespan(app: FastAPI):
     text_collection = chroma_client.get_or_create_collection("ddls", embedding_function=None)
     # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
     print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
+
+    query_memory_collection = get_or_create_query_memory_collection(chroma_client)
+    print(
+        f"[startup] Query memory: {query_memory_collection.count()} consultas registradas."
+    )
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
     # Ingesta automática
@@ -155,6 +167,30 @@ class EmbeddingsResponse(BaseModel):
     descripcion: list[str]
     distance: list[float]
     ddl: str
+
+
+class MemorySearchRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    n_results: int = Field(default=3, ge=1, le=10)
+
+
+class MemorySearchResult(BaseModel):
+    question: str
+    sql: str
+    sources: str
+    confidence_note: str
+    status: str
+    distance: float
+
+
+class MemorySearchResponse(BaseModel):
+    results: list[MemorySearchResult]
+
+
+class MemoryStatsResponse(BaseModel):
+    collection: str
+    count: int
+    status: str
 
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
@@ -364,6 +400,49 @@ async def ingest_document(
     return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
 
 
+@app.get("/memory/stats", response_model=MemoryStatsResponse)
+def memory_stats() -> MemoryStatsResponse:
+    if query_memory_collection is None:
+        return MemoryStatsResponse(
+            collection="query_memory",
+            count=0,
+            status="not_initialized",
+        )
+
+    return MemoryStatsResponse(
+        collection="query_memory",
+        count=query_memory_collection.count(),
+        status="ok",
+    )
+
+
+@app.post("/memory/search", response_model=MemorySearchResponse)
+def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
+    if query_memory_collection is None:
+        raise HTTPException(503, "La memoria de consultas no está inicializada.")
+
+    query_embedding = embed_texts([request.question])[0]
+    results = search_query_memory(
+        query_memory_collection,
+        embedding=query_embedding,
+        n_results=request.n_results,
+    )
+
+    return MemorySearchResponse(
+        results=[
+            MemorySearchResult(
+                question=str(result["metadata"].get("question", "")),
+                sql=str(result["metadata"].get("sql", "")),
+                sources=str(result["metadata"].get("sources", "")),
+                confidence_note=str(result["metadata"].get("confidence_note", "")),
+                status=str(result["metadata"].get("status", "")),
+                distance=float(result["distance"]),
+            )
+            for result in results
+        ]
+    )
+
+
 @app.post("/query/json", response_model=RAGResponse)
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
@@ -376,7 +455,25 @@ async def query_json(request: QueryRequest):
     if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
-    return build_rag_response(request.question, resp.ddl)
+    rag_response = build_rag_response(request.question, resp.ddl)
+
+    if query_memory_collection is not None:
+        try:
+            memory_embedding = embed_texts([request.question])[0]
+            save_query_memory(
+                query_memory_collection,
+                question=request.question,
+                sql=rag_response.sql,
+                embedding=memory_embedding,
+                sources=rag_response.sources,
+                confidence_note=rag_response.confidence_note,
+                status=rag_response.status,
+                model=MODEL,
+            )
+        except Exception as exc:
+            print(f"[memory] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
+
+    return rag_response
 
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
