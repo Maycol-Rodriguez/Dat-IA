@@ -485,12 +485,27 @@ async def query_json(request: QueryRequest):
         return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
                            sources="",confidence_note="")
 
-    resp = query_embeddings(text_collection, request.question, distance_threshold=0.7)
+    try:
+        optimized_query = optimize_query(
+            request.question,
+            gemini_client=gemini_client,
+            model=MODEL,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    query_for_generation = optimized_query.normalized_question
+
+    resp = query_embeddings(
+        text_collection,
+        query_for_generation,
+        distance_threshold=0.7,
+    )
 
     if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
-    rag_response = build_rag_response(request.question, resp.ddl)
+    rag_response = build_rag_response(query_for_generation, resp.ddl)
 
     if query_memory_collection is not None:
         try:
