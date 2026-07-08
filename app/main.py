@@ -18,6 +18,8 @@ from app.memory.query_memory import (
     search_query_memory,
 )
 
+from app.optimizer.query_optimizer import optimize_query
+
 import torch
 from transformers import AutoTokenizer\
     , AutoModelForSequenceClassification#, BitsAndBytesConfig, AutoModelForCausalLM
@@ -191,6 +193,25 @@ class MemoryStatsResponse(BaseModel):
     collection: str
     count: int
     status: str
+
+
+class QueryOptimizeFilter(BaseModel):
+    field: str
+    operator: str
+    value: str
+
+
+class QueryOptimizeResponse(BaseModel):
+    original_question: str
+    normalized_question: str
+    intent: str
+    metrics: list[str]
+    filters: list[QueryOptimizeFilter]
+    date_range: dict[str, str] | None
+    group_by: list[str]
+    context: list[str]
+    suggested_tables: list[str]
+    optimizer: str
 
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
@@ -368,6 +389,20 @@ def ready() -> dict:
         "database": "not_configured",
         "message": "La conexión a Supabase se configurará en una siguiente etapa.",
     }
+
+@app.post("/query/optimize", response_model=QueryOptimizeResponse)
+def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
+    try:
+        optimized_query = optimize_query(
+            request.question,
+            gemini_client=gemini_client,
+            model=MODEL,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    return QueryOptimizeResponse(**optimized_query.to_dict())
+
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_document(
