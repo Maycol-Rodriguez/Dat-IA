@@ -38,3 +38,21 @@ def test_ask_rejects_empty_question() -> None:
     response = client.post("/query/json", json={"question": ""})
 
     assert response.status_code == 422
+
+def test_memory_stats_returns_response() -> None:
+    response = client.get("/memory/stats")
+
+    assert response.status_code == 200
+    assert response.json()["collection"] == "query_memory"
+
+
+def test_memory_search_returns_503_when_memory_is_not_initialized() -> None:
+    response = client.post(
+        "/memory/search",
+        json={
+            "question": "Que empresa de transporte tiene mejor cumplimiento?",
+            "n_results": 3,
+        },
+    )
+
+    assert response.status_code == 503
