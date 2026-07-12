@@ -160,10 +160,13 @@ def _build_optimizer_prompt(question: str) -> str:
 You are a query optimizer for a Text-to-SQL system.
 
 Normalize the user's business question before SQL generation.
+The DDL schema descriptions used for retrieval are written in Spanish, so
+"normalized_question" must always be written in Spanish, regardless of the
+language of the user's original question.
 
 Return only valid JSON with this structure:
 {{
-  "normalized_question": "clear rewritten question",
+  "normalized_question": "clear rewritten question, always in Spanish",
   "intent": "ranking | count | aggregation | temporal_trend | comparison | detail",
   "metrics": ["metric names"],
   "filters": [

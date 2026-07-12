@@ -315,7 +315,7 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.9) ->
     ]
 
     if not filtrados:
-        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="")
+        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="", distance=[])
 
     listTablas       = [meta['nombre'] for meta, doc, dist in filtrados]
     listDescripciones = [doc           for meta, doc, dist in filtrados]
