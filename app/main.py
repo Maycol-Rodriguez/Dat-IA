@@ -9,7 +9,7 @@ from typing import Literal
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
-from google.genai import types
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 from app.memory.query_memory import (
@@ -38,6 +38,7 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 
 # Estos se inicializan en el lifespan para no bloquear el import
 gemini_client: genai.Client = None
+rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
 query_memory_collection = None
@@ -53,7 +54,7 @@ shield_model = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global gemini_client, chroma_client, text_collection, image_collection
+    global gemini_client, rag_llm, chroma_client, text_collection, image_collection
     global query_memory_collection, shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
@@ -62,6 +63,15 @@ async def lifespan(app: FastAPI):
     # Inicializar Gemini
     gemini_client = genai.Client(api_key=GOOGLE_API_KEY)
     print("[startup] Gemini client inicializado.")
+
+    # Inicializar LLM de generación SQL (LangChain) con salida estructurada
+    rag_llm = ChatGoogleGenerativeAI(
+        model=MODEL,
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.0,
+        max_output_tokens=600,
+    ).with_structured_output(RAGResponse)
+    print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
 
     # Inicializar ChromaDB
     # Si CHROMA_HOST está definido (ej: docker-compose), usar el servidor HTTP externo.
@@ -319,45 +329,32 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.9) ->
 
 def build_rag_response(question: str, ddl: str) -> RAGResponse:
     """
-    Construye el prompt de augmentation y llama a Gemini.
-    Retorna RAGResponse estructurado.
+    Construye el prompt de augmentation y llama al LLM (LangChain) con
+    salida estructurada. Retorna RAGResponse.
     """
 
     augmented_prompt = f"""
-### Task
-Generate a SQL query to answer [QUESTION]{question}[/QUESTION]
+    ### Task
+    Generate a SQL query to answer [QUESTION]{question}[/QUESTION]
 
-### Instructions
-- If you cannot answer the question with the available database schema, return 'I do not know'
+    ### Instructions
+    - If you cannot answer the question with the available database schema, return 'I do not know'
 
-### Database Schema
-The query will run on a database with the following schema:
-{ddl}
+    ### Database Schema
+    The query will run on a database with the following schema:
+    {ddl}
 
-### Answer
-Given the database schema, here is the SQL query that answers [QUESTION]{question}[/QUESTION]
-[SQL]
-"""
+    ### Answer
+    Given the database schema, here is the SQL query that answers [QUESTION]{question}[/QUESTION]
+    [SQL]
+    """
 
-    # Contenido: imagen (si hay) + prompt
-    contents = [augmented_prompt]
+    parsed: RAGResponse = rag_llm.invoke(augmented_prompt)
 
-    response = gemini_client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=600,
-            response_mime_type="application/json",
-            response_schema=RAGResponse
-        )
-    )
+    if "i do not know" in parsed.sql.lower():
+        parsed = parsed.model_copy(update={"sources": ""})
 
-    parsed = json.loads(response.text)
-    if "i do not know" in parsed.get("sql", "").lower():
-        parsed["sources"] = ""
-
-    return RAGResponse(**parsed)
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +493,8 @@ async def query_json(request: QueryRequest):
 
     query_for_generation = optimized_query.normalized_question
 
+    print(f"Query for generation: {query_for_generation}")
+
     resp = query_embeddings(
         text_collection,
         query_for_generation,
@@ -504,6 +503,8 @@ async def query_json(request: QueryRequest):
 
     if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
+    
+    print(f"Found table: {resp.ddl}")
 
     rag_response = build_rag_response(query_for_generation, resp.ddl)
 

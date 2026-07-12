@@ -1,9 +1,21 @@
 ﻿from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import RAGResponse, app, build_rag_response
 
 
 client = TestClient(app)
+
+
+class FakeRagLlm:
+    """Simula ChatGoogleGenerativeAI().with_structured_output(RAGResponse)."""
+
+    def __init__(self, response: RAGResponse) -> None:
+        self.response = response
+        self.last_prompt = ""
+
+    def invoke(self, prompt: str) -> RAGResponse:
+        self.last_prompt = prompt
+        return self.response
 
 
 def test_health_returns_ok() -> None:
@@ -86,6 +98,44 @@ def test_query_optimize_rejects_blank_question() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_build_rag_response_returns_llm_output(monkeypatch) -> None:
+    from app import main as main_module
+
+    fake_response = RAGResponse(
+        sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
+        sources="carriers",
+        confidence_note="Usa la métrica on_time_rate.",
+        status="success",
+    )
+    fake_llm = FakeRagLlm(fake_response)
+    monkeypatch.setattr(main_module, "rag_llm", fake_llm)
+
+    result = build_rag_response(
+        "Listar transportistas ordenados por mayor tasa de cumplimiento.",
+        "CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
+    )
+
+    assert result == fake_response
+    assert "carriers" in fake_llm.last_prompt
+
+
+def test_build_rag_response_clears_sources_when_llm_does_not_know(monkeypatch) -> None:
+    from app import main as main_module
+
+    fake_response = RAGResponse(
+        sql="I do not know",
+        sources="carriers",
+        confidence_note="No hay suficiente contexto.",
+        status="unknown",
+    )
+    monkeypatch.setattr(main_module, "rag_llm", FakeRagLlm(fake_response))
+
+    result = build_rag_response("Pregunta sin tabla relevante.", "CREATE TABLE x (a int);")
+
+    assert result.sources == ""
+    assert result.sql == "I do not know"
 
 
 def test_query_json_uses_optimized_question(monkeypatch) -> None:
