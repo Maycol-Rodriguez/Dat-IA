@@ -361,6 +361,30 @@ def execute_sql(db: SQLDatabase, sql: str, row_limit: int = 200) -> dict:
     return {"rows": rows[:row_limit]}
 
 
+def classify_shield(text_input: str) -> tuple[str, float]:
+    """Clasifica un texto con SQLPromptShield. Devuelve (label, score).
+
+    label es "SAFE" o "MALICIOUS" (id2label del modelo).
+    """
+    inputs = shield_tokenizer(
+        text_input,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=128,
+    )
+
+    with torch.no_grad():
+        outputs = shield_model(**inputs)
+
+    probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
+    predicted_class_id = torch.argmax(probabilities, dim=-1).item()
+    label = shield_model.config.id2label[predicted_class_id]
+    score = probabilities[0][predicted_class_id].item()
+
+    return label, score
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -529,28 +553,8 @@ async def query_json(request: QueryRequest):
 
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
-    # Usamos las variables globales inicializadas en el lifespan
-    inputs = shield_tokenizer(
-        request.text_input, 
-        return_tensors="pt", 
-        padding=True, 
-        truncation=True, 
-        max_length=128
-    )
+    label, score = classify_shield(request.text_input)
 
-    with torch.no_grad():
-        outputs = shield_model(**inputs)
-
-    logits = outputs.logits
-    probabilities = torch.nn.functional.softmax(logits, dim=-1)
-
-    predicted_class_id = torch.argmax(probabilities, dim=-1).item()
-    label = shield_model.config.id2label[predicted_class_id]
-    score = probabilities[0][predicted_class_id].item()
-    
-    # IMPORTANTE: Tu función original retornaba una tupla, pero tienes 
-    # response_model=SHIELDResponse. FastAPI dará error si no devuelves 
-    # la estructura correcta de SHIELDResponse. Aquí te lo adapto:
     return SHIELDResponse(
         sql=request.text_input,
         sources="SQLPromptShield",
