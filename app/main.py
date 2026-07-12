@@ -638,7 +638,7 @@ async def query_json(request: QueryRequest):
     resp = query_embeddings(
         text_collection,
         query_for_generation,
-        distance_threshold=0.8,
+        distance_threshold=0.7,
     )
 
     if resp.ddl == "":
