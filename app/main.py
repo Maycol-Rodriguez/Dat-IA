@@ -290,37 +290,25 @@ def retrieve_chunks(
         )
     ]
 
-def query_embeddings(collection, query: str, distance_threshold: float = 0.9) -> EmbeddingsResponse:
+def query_embeddings(collection, query: str, distance_threshold: float = 0.7) -> EmbeddingsResponse:
     """
     Consulta vectorial filtrando por distancia semántica.
     Solo retorna resultados con distancia <= threshold.
     """
-    query_embedding = embed_texts([query])
-
-    resultados = collection._collection.query(
-        query_embeddings=query_embedding,
-        n_results=10,                        # trae más candidatos
-        include=["metadatas", "documents", "distances"]  # incluir distancias
-    )
-
-    metadatas  = resultados['metadatas'][0]
-    documents  = resultados['documents'][0]
-    distances  = resultados['distances'][0]
+    resultados = collection.similarity_search_with_score(query, k=10)  # trae más candidatos
 
     # Filtrar por umbral de distancia
     filtrados = [
-        (meta, doc, dist)
-        for meta, doc, dist in zip(metadatas, documents, distances)
-        if dist <= distance_threshold
+        (doc, dist) for doc, dist in resultados if dist <= distance_threshold
     ]
 
     if not filtrados:
         return EmbeddingsResponse(tabla=[], descripcion=[], ddl="", distance=[])
 
-    listTablas       = [meta['nombre'] for meta, doc, dist in filtrados]
-    listDescripciones = [doc           for meta, doc, dist in filtrados]
-    listDistances    = [dist          for meta, doc, dist in filtrados]
-    listDdls         = [meta['ddl']    for meta, doc, dist in filtrados]
+    listTablas        = [doc.metadata["nombre"] for doc, dist in filtrados]
+    listDescripciones = [doc.page_content       for doc, dist in filtrados]
+    listDistances     = [dist                   for doc, dist in filtrados]
+    listDdls          = [doc.metadata["ddl"]    for doc, dist in filtrados]
 
     ddls = '\n'.join(listDdls)
 

@@ -1,6 +1,7 @@
 ﻿from fastapi.testclient import TestClient
+from langchain_core.documents import Document
 
-from app.main import RAGResponse, app, build_rag_response
+from app.main import RAGResponse, app, build_rag_response, query_embeddings
 
 
 client = TestClient(app)
@@ -136,6 +137,63 @@ def test_build_rag_response_clears_sources_when_llm_does_not_know(monkeypatch) -
 
     assert result.sources == ""
     assert result.sql == "I do not know"
+
+
+class FakeVectorStore:
+    """Simula langchain_chroma.Chroma.similarity_search_with_score."""
+
+    def __init__(self, results: list[tuple[Document, float]]) -> None:
+        self.results = results
+
+    def similarity_search_with_score(self, query: str, k: int = 10):
+        return self.results
+
+
+def test_query_embeddings_filters_by_distance_threshold() -> None:
+    vectorstore = FakeVectorStore(
+        [
+            (
+                Document(
+                    page_content="Transportistas y tasa de cumplimiento.",
+                    metadata={"nombre": "carriers", "ddl": "CREATE TABLE carriers (...);"},
+                ),
+                0.3,
+            ),
+            (
+                Document(
+                    page_content="Tabla no relacionada.",
+                    metadata={"nombre": "otra_tabla", "ddl": "CREATE TABLE otra (...);"},
+                ),
+                0.95,
+            ),
+        ]
+    )
+
+    result = query_embeddings(vectorstore, "transportistas", distance_threshold=0.7)
+
+    assert result.tabla == ["carriers"]
+    assert result.distance == [0.3]
+    assert result.ddl == "CREATE TABLE carriers (...);"
+
+
+def test_query_embeddings_returns_empty_when_nothing_passes_threshold() -> None:
+    vectorstore = FakeVectorStore(
+        [
+            (
+                Document(
+                    page_content="Tabla no relacionada.",
+                    metadata={"nombre": "otra_tabla", "ddl": "CREATE TABLE otra (...);"},
+                ),
+                0.95,
+            )
+        ]
+    )
+
+    result = query_embeddings(vectorstore, "pregunta fuera de dominio", distance_threshold=0.7)
+
+    assert result.tabla == []
+    assert result.ddl == ""
+    assert result.distance == []
 
 
 def test_query_json_uses_optimized_question(monkeypatch) -> None:
