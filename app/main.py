@@ -9,7 +9,7 @@ from typing import Literal
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from pydantic import BaseModel, Field
 
 from app.memory.query_memory import (
@@ -39,6 +39,7 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 # Estos se inicializan en el lifespan para no bloquear el import
 gemini_client: genai.Client = None
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
+embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
 query_memory_collection = None
@@ -54,7 +55,7 @@ shield_model = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global gemini_client, rag_llm, chroma_client, text_collection, image_collection
+    global gemini_client, rag_llm, embeddings_model, chroma_client, text_collection, image_collection
     global query_memory_collection, shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
@@ -72,6 +73,13 @@ async def lifespan(app: FastAPI):
         max_output_tokens=600,
     ).with_structured_output(RAGResponse)
     print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+
+    # Inicializar embeddings (LangChain)
+    embeddings_model = GoogleGenerativeAIEmbeddings(
+        model=EMBED_MODEL,
+        google_api_key=GOOGLE_API_KEY,
+    )
+    print("[startup] LangChain GoogleGenerativeAIEmbeddings inicializado.")
 
     # Inicializar ChromaDB
     # Si CHROMA_HOST está definido (ej: docker-compose), usar el servidor HTTP externo.
@@ -98,9 +106,9 @@ async def lifespan(app: FastAPI):
             try:
                 with open("data/ddl.json", "r", encoding="utf-8") as f:
                     content = json.load(f)
-                
+
                 chunks = cargar_tablas(content)
-                
+
                 if chunks:
                     batch_size = 50
                     for i in range(0, len(chunks), batch_size):
@@ -228,19 +236,8 @@ class QueryOptimizeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Genera embeddings con gemini-embedding-2 (una llamada por texto).
-
-    Nota: embed_content con una lista de strings devuelve un único embedding
-    (los concatena). Se llama una vez por texto y se agregan los resultados.
-    """
-    embeddings = []
-    for text in texts:
-        result = gemini_client.models.embed_content(
-            model=EMBED_MODEL,
-            contents=text
-        )
-        embeddings.append(result.embeddings[0].values)
-    return embeddings
+    """Genera embeddings con gemini-embedding-2 vía LangChain (batching interno)."""
+    return embeddings_model.embed_documents(texts)
 
 
 def cargar_tablas(tablas: list) -> list[dict]:
