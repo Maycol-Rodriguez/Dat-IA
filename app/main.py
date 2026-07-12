@@ -99,9 +99,9 @@ async def lifespan(app: FastAPI):
     # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
     print(f"[startup] ChromaDB: {text_collection._collection.count()} esquemas registrados.")
 
-    query_memory_collection = get_or_create_query_memory_collection(chroma_client)
+    query_memory_collection = get_or_create_query_memory_collection(chroma_client, embeddings_model)
     print(
-        f"[startup] Query memory: {query_memory_collection.count()} consultas registradas."
+        f"[startup] Query memory: {query_memory_collection._collection.count()} consultas registradas."
     )
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
@@ -429,7 +429,7 @@ def memory_stats() -> MemoryStatsResponse:
 
     return MemoryStatsResponse(
         collection="query_memory",
-        count=query_memory_collection.count(),
+        count=query_memory_collection._collection.count(),
         status="ok",
     )
 
@@ -439,10 +439,9 @@ def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
     if query_memory_collection is None:
         raise HTTPException(503, "La memoria de consultas no está inicializada.")
 
-    query_embedding = embed_texts([request.question])[0]
     results = search_query_memory(
         query_memory_collection,
-        embedding=query_embedding,
+        query=request.question,
         n_results=request.n_results,
     )
 
@@ -496,12 +495,10 @@ async def query_json(request: QueryRequest):
 
     if query_memory_collection is not None:
         try:
-            memory_embedding = embed_texts([request.question])[0]
             save_query_memory(
                 query_memory_collection,
                 question=request.question,
                 sql=rag_response.sql,
-                embedding=memory_embedding,
                 sources=rag_response.sources,
                 confidence_note=rag_response.confidence_note,
                 status=rag_response.status,
