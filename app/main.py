@@ -9,9 +9,11 @@ from typing import Literal
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from langchain_chroma import Chroma
+from langchain_community.utilities import SQLDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from pydantic import BaseModel, Field
 
+from app.db.connect_db import create_db_engine
 from app.memory.query_memory import (
     get_or_create_query_memory_collection,
     save_query_memory,
@@ -30,6 +32,7 @@ from transformers import AutoTokenizer\
 # ---------------------------------------------------------------------------
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 MODEL = "gemini-3.1-flash-lite-preview"
 EMBED_MODEL = "gemini-embedding-2"
 CHROMA_PATH = "./chroma_db"
@@ -46,6 +49,7 @@ query_memory_collection = None
 image_collection = None
 shield_tokenizer = None
 shield_model = None
+sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +60,7 @@ shield_model = None
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
     global rag_llm, optimizer_llm, embeddings_model, chroma_client, text_collection, image_collection
-    global query_memory_collection, shield_tokenizer, shield_model
+    global query_memory_collection, shield_tokenizer, shield_model, sql_database
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
@@ -108,6 +112,19 @@ async def lifespan(app: FastAPI):
         f"[startup] Query memory: {query_memory_collection._collection.count()} consultas registradas."
     )
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
+
+    # Inicializar SQLDatabase (LangChain) contra Supabase/Postgres, si está configurada.
+    # Es opcional: si falla o no hay DATABASE_URL, /query/answer queda deshabilitado
+    # pero el resto de la app (generación de SQL sin ejecutar) sigue funcionando.
+    if DATABASE_URL:
+        try:
+            db_engine = create_db_engine(DATABASE_URL)
+            sql_database = SQLDatabase(db_engine, lazy_table_reflection=True)
+            print(f"[startup] SQLDatabase conectado (dialecto: {sql_database.dialect}).")
+        except Exception as e:
+            print(f"[startup] ADVERTENCIA: No se pudo conectar a DATABASE_URL: {e}")
+    else:
+        print("[startup] DATABASE_URL no configurada: /query/answer no podrá ejecutar SQL.")
 
     # Ingesta automática
     if text_collection._collection.count() == 0:
@@ -343,8 +360,12 @@ def health() -> HealthResponse:
 def ready() -> dict:
     return {
         "status": "ok",
-        "database": "not_configured",
-        "message": "La conexión a Supabase se configurará en una siguiente etapa.",
+        "database": "connected" if sql_database is not None else "not_configured",
+        "message": (
+            f"Conectado (dialecto: {sql_database.dialect})."
+            if sql_database is not None
+            else "DATABASE_URL no configurada o la conexión a Supabase falló al arrancar."
+        ),
     }
 
 @app.post("/query/optimize", response_model=QueryOptimizeResponse)
