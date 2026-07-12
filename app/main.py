@@ -414,15 +414,15 @@ def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
     original (mismo criterio que optimize_query para normalized_question).
     """
     prompt = f"""
-Eres un analista de datos. Responde la pregunta del usuario en español,
-de forma clara y concisa, usando exclusivamente el resultado de la
-consulta SQL de abajo. Menciona el número de filas si es relevante.
-No inventes datos que no estén en el resultado.
+    Eres un analista de datos. Responde la pregunta del usuario en español,
+    de forma clara y concisa, usando exclusivamente el resultado de la
+    consulta SQL de abajo. Menciona el número de filas si es relevante.
+    No inventes datos que no estén en el resultado.
 
-Pregunta: {question}
-SQL ejecutado: {sql}
-Resultado ({len(rows)} filas): {rows}
-"""
+    Pregunta: {question}
+    SQL ejecutado: {sql}
+    Resultado ({len(rows)} filas): {rows}
+    """
 
     structured_llm = llm.with_structured_output(_AnswerPayload)
     return structured_llm.invoke(prompt).answer
