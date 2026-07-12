@@ -40,6 +40,7 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 # Estos se inicializan en el lifespan para no bloquear el import
 gemini_client: genai.Client = None
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
+optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
 embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
@@ -56,7 +57,7 @@ shield_model = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global gemini_client, rag_llm, embeddings_model, chroma_client, text_collection, image_collection
+    global gemini_client, rag_llm, optimizer_llm, embeddings_model, chroma_client, text_collection, image_collection
     global query_memory_collection, shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
@@ -74,6 +75,15 @@ async def lifespan(app: FastAPI):
         max_output_tokens=600,
     ).with_structured_output(RAGResponse)
     print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+
+    # Inicializar LLM del optimizer (LangChain, salida estructurada dentro de optimize_query)
+    optimizer_llm = ChatGoogleGenerativeAI(
+        model=MODEL,
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.0,
+        max_output_tokens=700,
+    )
+    print("[startup] LangChain ChatGoogleGenerativeAI (optimizer) inicializado.")
 
     # Inicializar embeddings (LangChain)
     embeddings_model = GoogleGenerativeAIEmbeddings(
@@ -380,8 +390,7 @@ def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
     try:
         optimized_query = optimize_query(
             request.question,
-            gemini_client=gemini_client,
-            model=MODEL,
+            llm=optimizer_llm,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -470,8 +479,7 @@ async def query_json(request: QueryRequest):
     try:
         optimized_query = optimize_query(
             request.question,
-            gemini_client=gemini_client,
-            model=MODEL,
+            llm=optimizer_llm,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

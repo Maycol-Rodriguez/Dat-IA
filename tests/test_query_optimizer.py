@@ -1,45 +1,40 @@
-import json
-
 import pytest
 
 from app.optimizer.query_optimizer import optimize_query, optimize_query_rule_based
 
 
-class FakeGeminiResponse:
-    def __init__(self, text: str) -> None:
-        self.text = text
+class _BoundFakeOptimizerLlm:
+    """Simula el runnable devuelto por llm.with_structured_output(schema)."""
+
+    def __init__(self, payload: dict, schema) -> None:
+        self.payload = payload
+        self.schema = schema
+
+    def invoke(self, prompt: str):
+        _ = prompt
+        return self.schema(**self.payload)
 
 
-class FakeGeminiModels:
+class FakeOptimizerLlm:
+    """Simula ChatGoogleGenerativeAI() antes de aplicar with_structured_output."""
+
     def __init__(self, payload: dict) -> None:
         self.payload = payload
-        self.used_model = ""
 
-    def generate_content(self, model: str, contents: list, config: object) -> FakeGeminiResponse:
-        self.used_model = model
-        _ = contents
-        _ = config
-
-        return FakeGeminiResponse(json.dumps(self.payload))
+    def with_structured_output(self, schema):
+        return _BoundFakeOptimizerLlm(self.payload, schema)
 
 
-class FakeGeminiClient:
-    def __init__(self, payload: dict) -> None:
-        self.models = FakeGeminiModels(payload)
+class BrokenOptimizerLlm:
+    """Simula un LLM que falla al invocarse (indisponible, error de red, etc.)."""
 
+    def with_structured_output(self, schema):
+        _ = schema
+        return self
 
-class BrokenGeminiModels:
-    def generate_content(self, model: str, contents: list, config: object) -> None:
-        _ = model
-        _ = contents
-        _ = config
-
-        raise RuntimeError("Gemini unavailable")
-
-
-class BrokenGeminiClient:
-    def __init__(self) -> None:
-        self.models = BrokenGeminiModels()
+    def invoke(self, prompt: str):
+        _ = prompt
+        raise RuntimeError("LLM no disponible")
 
 
 def test_rule_based_optimizer_detects_carrier_ranking_query() -> None:
@@ -98,7 +93,7 @@ def test_rule_based_optimizer_detects_filters() -> None:
     assert {"field": "payment_type", "operator": "=", "value": "credit_card"} in filters
 
 
-def test_optimizer_uses_gemini_when_client_is_available() -> None:
+def test_optimizer_uses_llm_when_available() -> None:
     payload = {
         "normalized_question": "Calcular ventas totales agrupadas por estado.",
         "intent": "aggregation",
@@ -113,27 +108,21 @@ def test_optimizer_uses_gemini_when_client_is_available() -> None:
             "olist_customers_dataset",
         ],
     }
-    client = FakeGeminiClient(payload)
+    llm = FakeOptimizerLlm(payload)
 
-    result = optimize_query(
-        "Dame ventas por estado",
-        gemini_client=client,
-        model="gemini-test",
-    )
+    result = optimize_query("Dame ventas por estado", llm=llm)
 
     assert result.optimizer == "gemini"
-    assert client.models.used_model == "gemini-test"
     assert result.normalized_question == "Calcular ventas totales agrupadas por estado."
     assert result.intent == "aggregation"
     assert result.metrics == ["revenue"]
     assert result.group_by == ["state"]
 
 
-def test_optimizer_falls_back_to_rules_when_gemini_fails() -> None:
+def test_optimizer_falls_back_to_rules_when_llm_fails() -> None:
     result = optimize_query(
         "Que transportista tiene la mayor tasa de cumplimiento?",
-        gemini_client=BrokenGeminiClient(),
-        model="gemini-test",
+        llm=BrokenOptimizerLlm(),
     )
 
     assert result.optimizer == "rule_based"
