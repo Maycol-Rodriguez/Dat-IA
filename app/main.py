@@ -20,10 +20,10 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # ---------------------------------------------------------------------------
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.documents import Document
+# from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+# from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 
 # ---------------------------------------------------------------------------
