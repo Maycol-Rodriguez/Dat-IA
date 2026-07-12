@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 from typing import Literal
@@ -332,6 +333,32 @@ def build_rag_response(question: str, ddl: str) -> RAGResponse:
         parsed = parsed.model_copy(update={"sources": ""})
 
     return parsed
+
+
+def execute_sql(db: SQLDatabase, sql: str, row_limit: int = 200) -> dict:
+    """Ejecuta SQL de solo lectura contra Supabase con guardas de seguridad.
+
+    Nunca lanza excepción: devuelve {"rows": [...]} en éxito o
+    {"error": "..."} si el SQL no pasa las validaciones o falla al
+    ejecutarse (defensa en profundidad, aunque el rol de BD ya sea de
+    solo lectura).
+    """
+    stripped = sql.strip().rstrip(";")
+
+    if not re.match(r"(?is)^select\b", stripped):
+        return {"error": "Solo se permiten sentencias SELECT."}
+
+    if ";" in stripped:
+        return {"error": "Solo se permite una sentencia SQL por consulta."}
+
+    result = db.run_no_throw(stripped, fetch="cursor")
+
+    if isinstance(result, str):
+        return {"error": result}
+
+    rows = [dict(row) for row in result.mappings()]
+
+    return {"rows": rows[:row_limit]}
 
 
 # ---------------------------------------------------------------------------
