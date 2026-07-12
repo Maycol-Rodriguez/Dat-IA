@@ -594,6 +594,93 @@ async def query_json(request: QueryRequest):
 
     return rag_response
 
+
+@app.post("/query/answer", response_model=AnswerResponse)
+async def query_answer(request: QueryRequest):
+    """Flujo completo: shield -> optimizer -> retrieval -> SQL -> ejecución -> respuesta."""
+    label, _score = classify_shield(request.question)
+    if label == "MALICIOUS":
+        raise HTTPException(422, "La pregunta fue bloqueada por el filtro de seguridad.")
+
+    if text_collection is None or text_collection._collection.count() == 0:
+        return AnswerResponse(
+            answer="La base de conocimiento todavía no tiene tablas indexadas.",
+            sql="SELECT 1 AS prototype_result;",
+            data=[],
+            sources="",
+            status="prototype",
+        )
+
+    try:
+        optimized_query = optimize_query(
+            request.question,
+            llm=optimizer_llm,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    query_for_generation = optimized_query.normalized_question
+
+    resp = query_embeddings(
+        text_collection,
+        query_for_generation,
+        distance_threshold=0.7,
+    )
+
+    if resp.ddl == "":
+        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
+
+    rag_response = build_rag_response(query_for_generation, resp.ddl)
+
+    if rag_response.sources == "":
+        return AnswerResponse(
+            answer="No encontré información suficiente en el esquema disponible para responder esta pregunta.",
+            sql=rag_response.sql,
+            data=[],
+            sources="",
+            status=rag_response.status,
+        )
+
+    if sql_database is None:
+        raise HTTPException(503, "La ejecución de SQL no está configurada (DATABASE_URL faltante).")
+
+    execution = execute_sql(sql_database, rag_response.sql)
+
+    if "error" in execution:
+        return AnswerResponse(
+            answer=f"La consulta generada falló al ejecutarse: {execution['error']}",
+            sql=rag_response.sql,
+            data=[],
+            sources=rag_response.sources,
+            status="error",
+        )
+
+    rows = execution["rows"]
+    answer_text = synthesize_answer(answer_llm, request.question, rag_response.sql, rows)
+
+    if query_memory_collection is not None:
+        try:
+            save_query_memory(
+                query_memory_collection,
+                question=request.question,
+                sql=rag_response.sql,
+                sources=rag_response.sources,
+                confidence_note=rag_response.confidence_note,
+                status="success",
+                model=MODEL,
+            )
+        except Exception as exc:
+            print(f"[memory] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
+
+    return AnswerResponse(
+        answer=answer_text,
+        sql=rag_response.sql,
+        data=rows,
+        sources=rag_response.sources,
+        status="success",
+    )
+
+
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
     label, score = classify_shield(request.text_input)
