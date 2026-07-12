@@ -43,6 +43,7 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 # Estos se inicializan en el lifespan para no bloquear el import
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
 optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
+answer_llm = None  # ChatGoogleGenerativeAI usado por synthesize_answer (with_structured_output)
 embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
@@ -60,7 +61,7 @@ sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global rag_llm, optimizer_llm, embeddings_model, chroma_client, text_collection, image_collection
+    global rag_llm, optimizer_llm, answer_llm, embeddings_model, chroma_client, text_collection, image_collection
     global query_memory_collection, shield_tokenizer, shield_model, sql_database
 
     if not GOOGLE_API_KEY:
@@ -83,6 +84,15 @@ async def lifespan(app: FastAPI):
         max_output_tokens=700,
     )
     print("[startup] LangChain ChatGoogleGenerativeAI (optimizer) inicializado.")
+
+    # Inicializar LLM de síntesis de respuesta (LangChain, salida estructurada)
+    answer_llm = ChatGoogleGenerativeAI(
+        model=MODEL,
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.0,
+        max_output_tokens=600,
+    )
+    print("[startup] LangChain ChatGoogleGenerativeAI (answer) inicializado.")
 
     # Inicializar embeddings (LangChain)
     embeddings_model = GoogleGenerativeAIEmbeddings(
@@ -212,6 +222,18 @@ class EmbeddingsResponse(BaseModel):
     descripcion: list[str]
     distance: list[float]
     ddl: str
+
+
+class AnswerResponse(BaseModel):
+    answer: str
+    sql: str
+    data: list[dict]
+    sources: str
+    status: str
+
+
+class _AnswerPayload(BaseModel):
+    answer: str
 
 
 class MemorySearchRequest(BaseModel):
@@ -383,6 +405,27 @@ def classify_shield(text_input: str) -> tuple[str, float]:
     score = probabilities[0][predicted_class_id].item()
 
     return label, score
+
+
+def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
+    """Sintetiza una respuesta en lenguaje natural a partir del resultado SQL.
+
+    Responde siempre en español, sin importar el idioma de la pregunta
+    original (mismo criterio que optimize_query para normalized_question).
+    """
+    prompt = f"""
+Eres un analista de datos. Responde la pregunta del usuario en español,
+de forma clara y concisa, usando exclusivamente el resultado de la
+consulta SQL de abajo. Menciona el número de filas si es relevante.
+No inventes datos que no estén en el resultado.
+
+Pregunta: {question}
+SQL ejecutado: {sql}
+Resultado ({len(rows)} filas): {rows}
+"""
+
+    structured_llm = llm.with_structured_output(_AnswerPayload)
+    return structured_llm.invoke(prompt).answer
 
 
 # ---------------------------------------------------------------------------
