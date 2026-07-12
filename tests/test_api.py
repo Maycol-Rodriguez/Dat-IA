@@ -144,6 +144,9 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
     captured = {}
 
     class FakeCollection:
+        def __init__(self) -> None:
+            self._collection = self
+
         def count(self) -> int:
             return 1
 

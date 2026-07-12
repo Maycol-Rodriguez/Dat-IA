@@ -9,6 +9,7 @@ from typing import Literal
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from google import genai
+from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from pydantic import BaseModel, Field
 
@@ -90,9 +91,13 @@ async def lifespan(app: FastAPI):
     else:
         chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
         print(f"[startup] ChromaDB: PersistentClient en {CHROMA_PATH}")
-    text_collection = chroma_client.get_or_create_collection("ddls", embedding_function=None)
+    text_collection = Chroma(
+        client=chroma_client,
+        collection_name="ddls",
+        embedding_function=embeddings_model,
+    )
     # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
-    print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
+    print(f"[startup] ChromaDB: {text_collection._collection.count()} esquemas registrados.")
 
     query_memory_collection = get_or_create_query_memory_collection(chroma_client)
     print(
@@ -101,7 +106,7 @@ async def lifespan(app: FastAPI):
     # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
     # Ingesta automática
-    if text_collection.count() == 0:
+    if text_collection._collection.count() == 0:
             print("[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json...")
             try:
                 with open("data/ddl.json", "r", encoding="utf-8") as f:
@@ -113,13 +118,11 @@ async def lifespan(app: FastAPI):
                     batch_size = 50
                     for i in range(0, len(chunks), batch_size):
                         batch = chunks[i : i + batch_size]
-                        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
 
-                        text_collection.upsert(
-                            ids        = [str(chunk["id"])       for chunk in batch],
-                            documents  = [chunk["descripcion"]   for chunk in batch],
-                            embeddings = embeddings,
-                            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+                        text_collection.add_texts(
+                            texts     = [chunk["descripcion"] for chunk in batch],
+                            metadatas = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+                            ids       = [str(chunk["id"]) for chunk in batch],
                         )
                     print(f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas.")
             except FileNotFoundError:
@@ -294,7 +297,7 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.9) ->
     """
     query_embedding = embed_texts([query])
 
-    resultados = collection.query(
+    resultados = collection._collection.query(
         query_embeddings=query_embedding,
         n_results=10,                        # trae más candidatos
         include=["metadatas", "documents", "distances"]  # incluir distancias
@@ -365,7 +368,7 @@ async def root():
         "status": "ok",
         "model": MODEL,
         "embed_model": EMBED_MODEL,
-        "text_docs": text_collection.count()
+        "text_docs": text_collection._collection.count()
     }
 
 @app.get("/health", response_model=HealthResponse)
@@ -417,13 +420,11 @@ async def ingest_document(
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
 
-        text_collection.upsert(
-            ids        = [chunk["id"]          for chunk in batch],
-            documents  = [chunk["descripcion"] for chunk in batch],
-            embeddings = embeddings,
-            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+        text_collection.add_texts(
+            texts     = [chunk["descripcion"] for chunk in batch],
+            metadatas = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
+            ids       = [chunk["id"] for chunk in batch],
         )
 
     return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
@@ -475,7 +476,7 @@ def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
 @app.post("/query/json", response_model=RAGResponse)
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
-    if text_collection is None or text_collection.count() == 0:
+    if text_collection is None or text_collection._collection.count() == 0:
         return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
                            sources="",confidence_note="")
 
