@@ -1,28 +1,29 @@
-"""API FastAPI para consultar esquemas DDL con Gemini y ChromaDB."""
+"""API FastAPI para consultar esquemas DDL con LangChain y ChromaDB.
+
+Migración de google-genai directo → LangChain.
+Preparado para reemplazar el LLM por defog/sqlcoder (HuggingFace) en el futuro.
+"""
 
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
-from typing import Literal
+from typing import Optional, Literal
 
 import chromadb
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from google import genai
-from google.genai import types
-from pydantic import BaseModel, Field
-
-from app.memory.query_memory import (
-    get_or_create_query_memory_collection,
-    save_query_memory,
-    search_query_memory,
-)
-
-from app.optimizer.query_optimizer import optimize_query
-
 import torch
-from transformers import AutoTokenizer\
-    , AutoModelForSequenceClassification#, BitsAndBytesConfig, AutoModelForCausalLM
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# ---------------------------------------------------------------------------
+# LangChain imports
+# ---------------------------------------------------------------------------
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 
 # ---------------------------------------------------------------------------
@@ -30,128 +31,147 @@ from transformers import AutoTokenizer\
 # ---------------------------------------------------------------------------
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-MODEL = "gemini-3.1-flash-lite-preview"
-EMBED_MODEL = "gemini-embedding-2"
-CHROMA_PATH = "./chroma_db"
-CHROMA_HOST = os.environ.get("CHROMA_HOST")          # set by docker-compose
-CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 
-# Estos se inicializan en el lifespan para no bloquear el import
-gemini_client: genai.Client = None
-chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
-text_collection = None
-query_memory_collection = None
-image_collection = None
+# LLM principal (fácil de intercambiar por defog/sqlcoder — ver comentario al final)
+LLM_MODEL = "gemini-3.5-flash"
+
+# Modelo de embeddings (Google)
+EMBED_MODEL = "models/gemini-embedding-001"
+
+CHROMA_PATH = "./chroma_db"
+CHROMA_HOST = os.environ.get("CHROMA_HOST")
+CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
+COLLECTION_NAME = "ddls"
+
+# Globals inicializados en lifespan
+llm: ChatGoogleGenerativeAI = None
+embeddings_model: GoogleGenerativeAIEmbeddings = None
+vectorstore: Chroma = None          # wrapper LangChain sobre ChromaDB
+chroma_client = None
+text_collection = None              # colección ChromaDB nativa (para conteos / upsert directo)
 shield_tokenizer = None
 shield_model = None
 
-
 # ---------------------------------------------------------------------------
-# Lifespan: inicialización al arrancar la app
+# Lifespan
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global gemini_client, chroma_client, text_collection, image_collection
-    global query_memory_collection, shield_tokenizer, shield_model
+    global llm, embeddings_model, vectorstore, chroma_client, text_collection
+    global shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
 
-    # Inicializar Gemini
-    gemini_client = genai.Client(api_key=GOOGLE_API_KEY)
-    print("[startup] Gemini client inicializado.")
+    # -- LLM (LangChain wrapper) -------------------------------------------
+    # Para migrar a defog/sqlcoder reemplaza este bloque por:
+    #
+    #   from langchain_huggingface import HuggingFacePipeline
+    #   from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+    #   tokenizer = AutoTokenizer.from_pretrained("defog/sqlcoder-7b-2")
+    #   model     = AutoModelForCausalLM.from_pretrained("defog/sqlcoder-7b-2", ...)
+    #   pipe      = pipeline("text-generation", model=model, tokenizer=tokenizer, ...)
+    #   llm       = HuggingFacePipeline(pipeline=pipe)
+    #
+    llm = ChatGoogleGenerativeAI(
+        model=LLM_MODEL,
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.0,
+        max_output_tokens=600,
+    )
+    print(f"[startup] LLM inicializado: {LLM_MODEL}")
 
-    # Inicializar ChromaDB
-    # Si CHROMA_HOST está definido (ej: docker-compose), usar el servidor HTTP externo.
-    # Si no, usar PersistentClient local (desarrollo fuera de Docker).
+    # -- Embeddings (LangChain wrapper) ------------------------------------
+    # Para migrar a defog/sqlcoder puedes conservar estos embeddings de Google
+    # o cambiarlos por HuggingFaceEmbeddings:
+    #
+    #   from langchain_huggingface import HuggingFaceEmbeddings
+    #   embeddings_model = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
+    #
+    embeddings_model = GoogleGenerativeAIEmbeddings(
+        model=EMBED_MODEL,
+        google_api_key=GOOGLE_API_KEY,
+    )
+    print(f"[startup] Embeddings inicializados: {EMBED_MODEL}")
+
+    # -- ChromaDB ----------------------------------------------------------
     if CHROMA_HOST:
         chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
-        print(f"[startup] ChromaDB: conectado a http://{CHROMA_HOST}:{CHROMA_PORT}")
+        print(f"[startup] ChromaDB HTTP: {CHROMA_HOST}:{CHROMA_PORT}")
     else:
         chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-        print(f"[startup] ChromaDB: PersistentClient en {CHROMA_PATH}")
-    text_collection = chroma_client.get_or_create_collection("ddls", embedding_function=None)
-    # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
-    print(f"[startup] ChromaDB: {text_collection.count()} esquemas registrados.")
+        print(f"[startup] ChromaDB Persistent: {CHROMA_PATH}")
 
-    query_memory_collection = get_or_create_query_memory_collection(chroma_client)
-    print(
-        f"[startup] Query memory: {query_memory_collection.count()} consultas registradas."
+    # Colección nativa (para conteos y upsert directo con embeddings pre-calculados)
+    text_collection = chroma_client.get_or_create_collection(
+        COLLECTION_NAME, embedding_function=None
     )
-    # print(f"[startup] ChromaDB: {image_collection.count()} docs en vouchers_financieros.")
 
-    # Ingesta automática
+    # Wrapper LangChain sobre la misma colección
+    vectorstore = Chroma(
+        client=chroma_client,
+        collection_name=COLLECTION_NAME,
+        embedding_function=embeddings_model,
+    )
+    print(f"[startup] {text_collection.count()} esquemas en ChromaDB.")
+
+    # -- Ingesta automática ------------------------------------------------
     if text_collection.count() == 0:
-            print("[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json...")
-            try:
-                with open("data/ddl.json", "r", encoding="utf-8") as f:
-                    content = json.load(f)
-                
-                chunks = cargar_tablas(content)
-                
-                if chunks:
-                    batch_size = 50
-                    for i in range(0, len(chunks), batch_size):
-                        batch = chunks[i : i + batch_size]
-                        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
+        print("[startup] Colección vacía — ingesta desde data/ddl.json ...")
+        try:
+            with open("data/ddl.json", "r", encoding="utf-8") as f:
+                content = json.load(f)
+            await _ingest_chunks(cargar_tablas(content))
+            print(f"[startup] Ingesta completada: {text_collection.count()} tablas.")
+        except FileNotFoundError:
+            print("[startup] ADVERTENCIA: data/ddl.json no encontrado.")
+        except Exception as exc:
+            print(f"[startup] ERROR en ingesta automática: {exc}")
 
-                        text_collection.upsert(
-                            ids        = [str(chunk["id"])       for chunk in batch],
-                            documents  = [chunk["descripcion"]   for chunk in batch],
-                            embeddings = embeddings,
-                            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
-                        )
-                    print(f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas.")
-            except FileNotFoundError:
-                print("[startup] ADVERTENCIA: No se encontró 'data/ddl.json' para la ingesta inicial.")
-            except Exception as e:
-                print(f"[startup] ERROR durante la ingesta automática: {e}")
-
-    # Inicializar SQLPromptShield
-    print("[startup] Cargando modelo SQLPromptShield...")
+    # -- SQLPromptShield ---------------------------------------------------
+    print("[startup] Cargando SQLPromptShield ...")
     shield_tokenizer = AutoTokenizer.from_pretrained("salmane11/SQLPromptShield")
-    shield_model = AutoModelForSequenceClassification.from_pretrained("salmane11/SQLPromptShield")
-    # shield_model.eval() # Recomendado: poner el modelo en modo evaluación
-    print("[startup] SQLPromptShield cargado exitosamente.")
+    shield_model = AutoModelForSequenceClassification.from_pretrained(
+        "salmane11/SQLPromptShield"
+    )
+    shield_model.eval()
+    print("[startup] SQLPromptShield listo.")
 
-    yield  # La app corre entre yield y el bloque de cleanup
+    yield
 
-    # Cleanup (opcional aquí, ChromaDB persiste solo)
     print("[shutdown] Cerrando app.")
 
 
 app = FastAPI(
     title="Dat-IA API",
-    version="0.1.0",
-    description="API inicial para el agente analista de datos Dat-IA.",
-    lifespan=lifespan
+    version="0.2.0",
+    description="API del agente analista Dat-IA — backend LangChain.",
+    lifespan=lifespan,
 )
 
 
 # ---------------------------------------------------------------------------
-# Schemas de request / response
+# Schemas
 # ---------------------------------------------------------------------------
 
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1)
-    
+
 class ShieldRequest(BaseModel):
     text_input: str
 
 class RAGResponse(BaseModel):
     sql: str
-    sources: str
-    confidence_note: str
-    status: str
+    sources: str = ""
+    confidence_note: str = ""
+    status: str = "ok"
 
 class SHIELDResponse(BaseModel):
     sql: str
     sources: str
     confidence_note: str
     status: str
-
 
 class IngestResponse(BaseModel):
     status: str
@@ -171,76 +191,15 @@ class EmbeddingsResponse(BaseModel):
     ddl: str
 
 
-class MemorySearchRequest(BaseModel):
-    question: str = Field(..., min_length=1)
-    n_results: int = Field(default=3, ge=1, le=10)
-
-
-class MemorySearchResult(BaseModel):
-    question: str
-    sql: str
-    sources: str
-    confidence_note: str
-    status: str
-    distance: float
-
-
-class MemorySearchResponse(BaseModel):
-    results: list[MemorySearchResult]
-
-
-class MemoryStatsResponse(BaseModel):
-    collection: str
-    count: int
-    status: str
-
-
-class QueryOptimizeFilter(BaseModel):
-    field: str
-    operator: str
-    value: str
-
-
-class QueryOptimizeResponse(BaseModel):
-    original_question: str
-    normalized_question: str
-    intent: str
-    metrics: list[str]
-    filters: list[QueryOptimizeFilter]
-    date_range: dict[str, str] | None
-    group_by: list[str]
-    context: list[str]
-    suggested_tables: list[str]
-    optimizer: str
-
 # ---------------------------------------------------------------------------
-# Utilidades internas (mismas funciones que en el notebook)
+# Utilidades internas
 # ---------------------------------------------------------------------------
-
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Genera embeddings con gemini-embedding-2 (una llamada por texto).
-
-    Nota: embed_content con una lista de strings devuelve un único embedding
-    (los concatena). Se llama una vez por texto y se agregan los resultados.
-    """
-    embeddings = []
-    for text in texts:
-        result = gemini_client.models.embed_content(
-            model=EMBED_MODEL,
-            contents=text
-        )
-        embeddings.append(result.embeddings[0].values)
-    return embeddings
-
 
 def cargar_tablas(tablas: list) -> list[dict]:
-    """
-    Recibe la lista ya parseada del JSON y retorna una lista de diccionarios
-    con la estructura: {"id": ..., "nombre": ..., "descripcion": ..., "ddl": ...}
-    """
+    """Normaliza el JSON de DDL al formato interno."""
     return [
         {
-            "id":          tabla["id"],
+            "id":          str(tabla["id"]),
             "nombre":      tabla["nombre"],
             "descripcion": tabla["descripcion"],
             "ddl":         tabla["ddl"],
@@ -248,112 +207,122 @@ def cargar_tablas(tablas: list) -> list[dict]:
         for tabla in tablas
     ]
 
-def retrieve_chunks(
-    query: str,
-    collection,
-    n_results: int = 3,
-    where: Optional[dict] = None
-) -> list[dict]:
-    """Retrieval semántico contra una colección ChromaDB."""
-    total = collection.count()
-    if total == 0:
-        return []
 
-    query_emb = embed_texts([query])[0]
+async def _ingest_chunks(chunks: list[dict], batch_size: int = 50) -> None:
+    """Indexa chunks en ChromaDB usando embeddings de LangChain."""
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i : i + batch_size]
+        texts = [c["descripcion"] for c in batch]
 
-    kwargs = {
-        "query_embeddings": [query_emb],
-        "n_results": min(n_results, total),  # nunca pedir más de lo que hay
-        "include": ["documents", "metadatas", "distances"]
-    }
-    if where:
-        kwargs["where"] = where
+        # Genera embeddings con el wrapper LangChain
+        batch_embeddings = embeddings_model.embed_documents(texts)
 
-    results = collection.query(**kwargs)
-
-    return [
-        {"text": doc, "metadata": meta, "distance": dist}
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0]
+        text_collection.upsert(
+            ids        = [c["id"]    for c in batch],
+            documents  = texts,
+            embeddings = batch_embeddings,
+            metadatas  = [{"nombre": c["nombre"], "ddl": c["ddl"]} for c in batch],
         )
-    ]
 
-def query_embeddings(collection, query: str, distance_threshold: float = 0.9) -> EmbeddingsResponse:
-    """
-    Consulta vectorial filtrando por distancia semántica.
-    Solo retorna resultados con distancia <= threshold.
-    """
-    query_embedding = embed_texts([query])
 
-    resultados = collection.query(
-        query_embeddings=query_embedding,
-        n_results=10,                        # trae más candidatos
-        include=["metadatas", "documents", "distances"]  # incluir distancias
+def _retrieve_ddl(question: str, distance_threshold: float = 0.8) -> EmbeddingsResponse:
+    """
+    Recupera DDLs relevantes consultando ChromaDB directamente.
+ 
+    Usa embed_query de LangChain para generar el vector de la pregunta y luego
+    consulta text_collection con la API nativa de ChromaDB.
+ 
+    Por qué no usamos vectorstore.similarity_search_with_relevance_scores():
+    La colección fue indexada pasando embeddings pre-calculados (embedding_function=None),
+    por lo que el wrapper LangChain/Chroma no puede normalizar correctamente los scores
+    y devuelve valores negativos, rompiendo el filtro por umbral.
+    Consultando ChromaDB directamente obtenemos la distancia coseno cruda [0, 2],
+    donde 0 = idéntico y 2 = opuesto, igual que hacía el código original.
+    """
+    query_embedding = embeddings_model.embed_query(question)
+ 
+    results = text_collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(10, text_collection.count()),
+        include=["metadatas", "documents", "distances"],
     )
-
-    metadatas  = resultados['metadatas'][0]
-    documents  = resultados['documents'][0]
-    distances  = resultados['distances'][0]
-
-    # Filtrar por umbral de distancia
+ 
+    metadatas = results["metadatas"][0]
+    documents = results["documents"][0]
+    distances = results["distances"][0]
+ 
+    # Log de diagnóstico: muestra las 3 distancias más cercanas
+    top = sorted(zip(distances, [m["nombre"] for m in metadatas]))[:3]
+    print(f"[retrieve] Top-3 distancias (umbral={distance_threshold}): "
+          + ", ".join(f"{n}={d:.4f}" for d, n in top))
+ 
     filtrados = [
         (meta, doc, dist)
         for meta, doc, dist in zip(metadatas, documents, distances)
         if dist <= distance_threshold
     ]
-
+ 
     if not filtrados:
-        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="")
+        print(f"[retrieve] Ningún resultado bajo el umbral. Min distancia: {min(distances):.4f}")
+        return EmbeddingsResponse(tabla=[], descripcion=[], distance=[], ddl="")
+ 
+    tablas        = [meta["nombre"] for meta, _, __ in filtrados]
+    descripciones = [doc            for _, doc, __ in filtrados]
+    dists         = [dist           for _, __, dist in filtrados]
+    ddls          = "\n".join(meta["ddl"] for meta, _, __ in filtrados)
+ 
+    return EmbeddingsResponse(
+        tabla=tablas,
+        descripcion=descripciones,
+        distance=dists,
+        ddl=ddls,
+    )
 
-    listTablas       = [meta['nombre'] for meta, doc, dist in filtrados]
-    listDescripciones = [doc           for meta, doc, dist in filtrados]
-    listDistances    = [dist          for meta, doc, dist in filtrados]
-    listDdls         = [meta['ddl']    for meta, doc, dist in filtrados]
 
-    ddls = '\n'.join(listDdls)
+# ---------------------------------------------------------------------------
+# Cadena RAG con LangChain (LCEL)
+# ---------------------------------------------------------------------------
 
-    return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
-
-
-def build_rag_response(question: str, ddl: str) -> RAGResponse:
-    """
-    Construye el prompt de augmentation y llama a Gemini.
-    Retorna RAGResponse estructurado.
-    """
-
-    augmented_prompt = f"""
-### Task
+# Prompt de augmentación
+# Al migrar a defog/sqlcoder, sólo necesitarás ajustar este template al
+# formato que espera ese modelo (usa ### Instruction / ### Context / ### Response).
+_SQL_PROMPT = PromptTemplate(
+    input_variables=["question", "ddl"],
+    template="""### Task
 Generate a SQL query to answer [QUESTION]{question}[/QUESTION]
 
 ### Instructions
 - If you cannot answer the question with the available database schema, return 'I do not know'
+- Return ONLY valid JSON with keys: sql, sources, confidence_note, status
+- Do not include markdown fences or extra text
 
 ### Database Schema
-The query will run on a database with the following schema:
 {ddl}
 
 ### Answer
 Given the database schema, here is the SQL query that answers [QUESTION]{question}[/QUESTION]
 [SQL]
-"""
+""",
+)
 
-    # Contenido: imagen (si hay) + prompt
-    contents = [augmented_prompt]
+_json_parser = JsonOutputParser()
 
-    response = gemini_client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=600,
-            response_mime_type="application/json",
-            response_schema=RAGResponse
-        )
-    )
 
-    parsed = json.loads(response.text)
+def _build_rag_chain():
+    """
+    Construye la cadena LCEL: prompt | llm | parser.
+
+    Separar la construcción en una función hace que sea trivial
+    intercambiar `llm` por HuggingFacePipeline(defog/sqlcoder) en el futuro.
+    """
+    return _SQL_PROMPT | llm | _json_parser
+
+
+def _run_rag(question: str, ddl: str) -> RAGResponse:
+    """Ejecuta la cadena RAG y devuelve un RAGResponse."""
+    chain = _build_rag_chain()
+    parsed = chain.invoke({"question": question, "ddl": ddl})
+
     if "i do not know" in parsed.get("sql", "").lower():
         parsed["sources"] = ""
 
@@ -366,21 +335,18 @@ Given the database schema, here is the SQL query that answers [QUESTION]{questio
 
 @app.get("/")
 async def root():
-    """Health check."""
     return {
         "status": "ok",
-        "model": MODEL,
+        "llm_model": LLM_MODEL,
         "embed_model": EMBED_MODEL,
-        "text_docs": text_collection.count()
+        "text_docs": text_collection.count(),
     }
+
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(
-        status="ok",
-        service="dat-ia-api",
-        version=app.version,
-    )
+    return HealthResponse(status="ok", service="dat-ia-api", version=app.version)
+
 
 @app.get("/ready")
 def ready() -> dict:
@@ -390,168 +356,102 @@ def ready() -> dict:
         "message": "La conexión a Supabase se configurará en una siguiente etapa.",
     }
 
-@app.post("/query/optimize", response_model=QueryOptimizeResponse)
-def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
-    try:
-        optimized_query = optimize_query(
-            request.question,
-            gemini_client=gemini_client,
-            model=MODEL,
-        )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-
-    return QueryOptimizeResponse(**optimized_query.to_dict())
-
 
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest_document(
-    file: Optional[UploadFile] = File(default=None)
-):
-    # -- Indexación de texto (MD/TXT) --
-    global text_collection
-
+async def ingest_document(file: Optional[UploadFile] = File(default=None)):
     raw = await file.read()
     content = json.loads(raw.decode("utf-8"))
     chunks = cargar_tablas(content)
 
     if not chunks:
-        raise HTTPException(400, "No se encontraron tablas.")
+        raise HTTPException(400, "No se encontraron tablas en el archivo.")
 
+    await _ingest_chunks(chunks)
 
-    # Embed e indexar
-    batch_size = 50
-    for i in range(0, len(chunks), batch_size):
-        batch = chunks[i : i + batch_size]
-        embeddings = embed_texts([chunk["descripcion"] for chunk in batch])
-
-        text_collection.upsert(
-            ids        = [chunk["id"]          for chunk in batch],
-            documents  = [chunk["descripcion"] for chunk in batch],
-            embeddings = embeddings,
-            metadatas  = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
-        )
-
-    return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
-
-
-@app.get("/memory/stats", response_model=MemoryStatsResponse)
-def memory_stats() -> MemoryStatsResponse:
-    if query_memory_collection is None:
-        return MemoryStatsResponse(
-            collection="query_memory",
-            count=0,
-            status="not_initialized",
-        )
-
-    return MemoryStatsResponse(
-        collection="query_memory",
-        count=query_memory_collection.count(),
+    return IngestResponse(
         status="ok",
-    )
-
-
-@app.post("/memory/search", response_model=MemorySearchResponse)
-def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
-    if query_memory_collection is None:
-        raise HTTPException(503, "La memoria de consultas no está inicializada.")
-
-    query_embedding = embed_texts([request.question])[0]
-    results = search_query_memory(
-        query_memory_collection,
-        embedding=query_embedding,
-        n_results=request.n_results,
-    )
-
-    return MemorySearchResponse(
-        results=[
-            MemorySearchResult(
-                question=str(result["metadata"].get("question", "")),
-                sql=str(result["metadata"].get("sql", "")),
-                sources=str(result["metadata"].get("sources", "")),
-                confidence_note=str(result["metadata"].get("confidence_note", "")),
-                status=str(result["metadata"].get("status", "")),
-                distance=float(result["distance"]),
-            )
-            for result in results
-        ]
+        chunks_indexed=len(chunks),
+        collection=COLLECTION_NAME,
+        chunks=chunks,
     )
 
 
 @app.post("/query/json", response_model=RAGResponse)
 async def query_json(request: QueryRequest):
-    """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
+    """Recupera DDLs relevantes y genera SQL con la cadena LangChain."""
     if text_collection is None or text_collection.count() == 0:
-        return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
-                           sources="",confidence_note="")
-
-    try:
-        optimized_query = optimize_query(
-            request.question,
-            gemini_client=gemini_client,
-            model=MODEL,
+        return RAGResponse(
+            sql="SELECT 1 AS prototype_result;",
+            status="prototype",
+            sources="",
+            confidence_note="",
         )
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
 
-    query_for_generation = optimized_query.normalized_question
+    resp = _retrieve_ddl(request.question, distance_threshold=0.8)
 
-    resp = query_embeddings(
-        text_collection,
-        query_for_generation,
-        distance_threshold=0.7,
-    )
-
-    if resp.ddl == "":
+    if not resp.ddl:
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
-    rag_response = build_rag_response(query_for_generation, resp.ddl)
+    return _run_rag(request.question, resp.ddl)
 
-    if query_memory_collection is not None:
-        try:
-            memory_embedding = embed_texts([request.question])[0]
-            save_query_memory(
-                query_memory_collection,
-                question=request.question,
-                sql=rag_response.sql,
-                embedding=memory_embedding,
-                sources=rag_response.sources,
-                confidence_note=rag_response.confidence_note,
-                status=rag_response.status,
-                model=MODEL,
-            )
-        except Exception as exc:
-            print(f"[memory] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
-
-    return rag_response
 
 @app.post("/query/shield", response_model=SHIELDResponse)
 async def sql_shield(request: ShieldRequest):
-    # Usamos las variables globales inicializadas en el lifespan
+    """Clasifica el input con SQLPromptShield (modelo HuggingFace local)."""
     inputs = shield_tokenizer(
-        request.text_input, 
-        return_tensors="pt", 
-        padding=True, 
-        truncation=True, 
-        max_length=128
+        request.text_input,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=128,
     )
 
     with torch.no_grad():
         outputs = shield_model(**inputs)
 
-    logits = outputs.logits
-    probabilities = torch.nn.functional.softmax(logits, dim=-1)
+    probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
+    pred_id = torch.argmax(probs, dim=-1).item()
+    label = shield_model.config.id2label[pred_id]
+    score = probs[0][pred_id].item()
 
-    predicted_class_id = torch.argmax(probabilities, dim=-1).item()
-    label = shield_model.config.id2label[predicted_class_id]
-    score = probabilities[0][predicted_class_id].item()
-    
-    # IMPORTANTE: Tu función original retornaba una tupla, pero tienes 
-    # response_model=SHIELDResponse. FastAPI dará error si no devuelves 
-    # la estructura correcta de SHIELDResponse. Aquí te lo adapto:
     return SHIELDResponse(
         sql=request.text_input,
         sources="SQLPromptShield",
         confidence_note=f"Score: {score:.4f}",
-        status=label
+        status=label,
     )
+
+
+# ---------------------------------------------------------------------------
+# NOTA: Migración futura a defog/sqlcoder
+# ---------------------------------------------------------------------------
+# 1. Instala: pip install langchain-huggingface transformers accelerate bitsandbytes
+#
+# 2. En el bloque `llm` del lifespan, reemplaza ChatGoogleGenerativeAI por:
+#
+#    from langchain_huggingface import HuggingFacePipeline
+#    from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
+#
+#    bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+#    tokenizer  = AutoTokenizer.from_pretrained("defog/sqlcoder-7b-2")
+#    model      = AutoModelForCausalLM.from_pretrained(
+#                     "defog/sqlcoder-7b-2",
+#                     quantization_config=bnb_config,
+#                     device_map="auto",
+#                 )
+#    pipe = pipeline(
+#        "text-generation", model=model, tokenizer=tokenizer,
+#        max_new_tokens=300, temperature=0.0, do_sample=False,
+#    )
+#    llm = HuggingFacePipeline(pipeline=pipe)
+#
+# 3. Ajusta `_SQL_PROMPT` al formato que espera sqlcoder:
+#
+#    ### Task
+#    {question}
+#    ### Database Schema
+#    {ddl}
+#    ### SQL Query
+#
+# El resto del código (cadena LCEL, endpoints, ChromaDB) no cambia.
+# ---------------------------------------------------------------------------
