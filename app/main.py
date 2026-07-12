@@ -8,7 +8,6 @@ from typing import Literal
 
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from google import genai
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from pydantic import BaseModel, Field
@@ -38,7 +37,6 @@ CHROMA_HOST = os.environ.get("CHROMA_HOST")          # set by docker-compose
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 
 # Estos se inicializan en el lifespan para no bloquear el import
-gemini_client: genai.Client = None
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
 optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
 embeddings_model: GoogleGenerativeAIEmbeddings = None
@@ -57,15 +55,11 @@ shield_model = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global gemini_client, rag_llm, optimizer_llm, embeddings_model, chroma_client, text_collection, image_collection
+    global rag_llm, optimizer_llm, embeddings_model, chroma_client, text_collection, image_collection
     global query_memory_collection, shield_tokenizer, shield_model
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
-
-    # Inicializar Gemini
-    gemini_client = genai.Client(api_key=GOOGLE_API_KEY)
-    print("[startup] Gemini client inicializado.")
 
     # Inicializar LLM de generación SQL (LangChain) con salida estructurada
     rag_llm = ChatGoogleGenerativeAI(
@@ -266,38 +260,6 @@ def cargar_tablas(tablas: list) -> list[dict]:
             "ddl":         tabla["ddl"],
         }
         for tabla in tablas
-    ]
-
-def retrieve_chunks(
-    query: str,
-    collection,
-    n_results: int = 3,
-    where: Optional[dict] = None
-) -> list[dict]:
-    """Retrieval semántico contra una colección ChromaDB."""
-    total = collection.count()
-    if total == 0:
-        return []
-
-    query_emb = embed_texts([query])[0]
-
-    kwargs = {
-        "query_embeddings": [query_emb],
-        "n_results": min(n_results, total),  # nunca pedir más de lo que hay
-        "include": ["documents", "metadatas", "distances"]
-    }
-    if where:
-        kwargs["where"] = where
-
-    results = collection.query(**kwargs)
-
-    return [
-        {"text": doc, "metadata": meta, "distance": dist}
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0]
-        )
     ]
 
 def query_embeddings(collection, query: str, distance_threshold: float = 0.7) -> EmbeddingsResponse:
