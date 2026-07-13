@@ -7,15 +7,12 @@ el flujo RAG existente.
 
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from google.genai import types
-
-DEFAULT_OPTIMIZER_MODEL = "gemini-3.1-flash-lite-preview"
+from pydantic import BaseModel, Field
 
 ALLOWED_INTENTS = {
     "ranking",
@@ -25,6 +22,25 @@ ALLOWED_INTENTS = {
     "comparison",
     "detail",
 }
+
+
+class _OptimizerFilterPayload(BaseModel):
+    field: str
+    operator: str = "="
+    value: str
+
+
+class _OptimizerPayload(BaseModel):
+    """Esquema de salida estructurada para el optimizer vía LangChain."""
+
+    normalized_question: str
+    intent: str
+    metrics: list[str] = Field(default_factory=list)
+    filters: list[_OptimizerFilterPayload] = Field(default_factory=list)
+    date_range: dict[str, str] | None = None
+    group_by: list[str] = Field(default_factory=list)
+    context: list[str] = Field(default_factory=list)
+    suggested_tables: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -65,23 +81,18 @@ class OptimizedQuery:
 def optimize_query(
     question: str,
     *,
-    gemini_client: Any | None = None,
-    model: str = DEFAULT_OPTIMIZER_MODEL,
-    use_gemini: bool = True,
+    llm: Any | None = None,
+    use_llm: bool = True,
 ) -> OptimizedQuery:
-    """Optimiza una pregunta usando Gemini y fallback por reglas."""
+    """Optimiza una pregunta usando un LLM (LangChain) y fallback por reglas."""
     cleaned_question = _clean_question(question)
 
     if not cleaned_question:
         raise ValueError("La pregunta no puede estar vacía.")
 
-    if use_gemini and gemini_client is not None:
+    if use_llm and llm is not None:
         try:
-            return _optimize_query_with_gemini(
-                question=cleaned_question,
-                gemini_client=gemini_client,
-                model=model,
-            )
+            return _optimize_query_with_llm(question=cleaned_question, llm=llm)
         except Exception:
             return optimize_query_rule_based(cleaned_question)
 
@@ -129,29 +140,19 @@ def optimize_query_rule_based(question: str) -> OptimizedQuery:
     )
 
 
-def _optimize_query_with_gemini(
+def _optimize_query_with_llm(
     *,
     question: str,
-    gemini_client: Any,
-    model: str,
+    llm: Any,
 ) -> OptimizedQuery:
     prompt = _build_optimizer_prompt(question)
 
-    response = gemini_client.models.generate_content(
-        model=model,
-        contents=[prompt],
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=700,
-            response_mime_type="application/json",
-        ),
-    )
-
-    payload = _parse_json_object(response.text)
+    structured_llm = llm.with_structured_output(_OptimizerPayload)
+    payload: _OptimizerPayload = structured_llm.invoke(prompt)
 
     return _optimized_query_from_payload(
         original_question=question,
-        payload=payload,
+        payload=payload.model_dump(),
     )
 
 
@@ -160,10 +161,13 @@ def _build_optimizer_prompt(question: str) -> str:
 You are a query optimizer for a Text-to-SQL system.
 
 Normalize the user's business question before SQL generation.
+The DDL schema descriptions used for retrieval are written in Spanish, so
+"normalized_question" must always be written in Spanish, regardless of the
+language of the user's original question.
 
 Return only valid JSON with this structure:
 {{
-  "normalized_question": "clear rewritten question",
+  "normalized_question": "clear rewritten question, always in Spanish",
   "intent": "ranking | count | aggregation | temporal_trend | comparison | detail",
   "metrics": ["metric names"],
   "filters": [
@@ -191,26 +195,6 @@ product_category_name_translation.
 User question:
 {question}
 """
-
-
-def _parse_json_object(response_text: str) -> dict[str, Any]:
-    cleaned_text = response_text.strip()
-
-    if cleaned_text.startswith("```"):
-        cleaned_text = re.sub(r"^```(?:json)?", "", cleaned_text).strip()
-        cleaned_text = re.sub(r"```$", "", cleaned_text).strip()
-
-    match = re.search(r"\{.*\}", cleaned_text, flags=re.DOTALL)
-
-    if not match:
-        raise ValueError("Gemini no devolvió un objeto JSON válido.")
-
-    payload = json.loads(match.group(0))
-
-    if not isinstance(payload, dict):
-        raise ValueError("Gemini no devolvió un objeto JSON.")
-
-    return payload
 
 
 def _optimized_query_from_payload(

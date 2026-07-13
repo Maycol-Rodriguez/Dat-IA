@@ -6,9 +6,10 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     # --- LangChain core y proveedores ---
-    "langchain-core>=0.3.0",
-    "langchain-google-genai>=2.0.0",     # ChatGoogleGenerativeAI + GoogleGenerativeAIEmbeddings
-    "langchain-chroma>=0.2.0",           # Wrapper LangChain para ChromaDB
+    "langchain-core>=1.4.9",
+    "langchain-google-genai>=4.2.7",     # ChatGoogleGenerativeAI + GoogleGenerativeAIEmbeddings
+    "langchain-chroma>=1.1.0",           # Wrapper LangChain para ChromaDB
+    "langchain-community>=0.4.2",        # SQLDatabase (ejecución de SQL contra Supabase)
     "langchain-huggingface>=0.1.0",      # HuggingFacePipeline (necesario para defog/sqlcoder)
 
     # --- Base de datos vectorial ---

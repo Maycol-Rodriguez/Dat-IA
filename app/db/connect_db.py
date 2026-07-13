@@ -1,25 +1,14 @@
-import os
-import pandas as pd
-from dotenv import load_dotenv
+"""Conexión a la base de datos relacional (Supabase/Postgres) para Dat-IA."""
+
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
-load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+def create_db_engine(database_url: str) -> Engine:
+    """Crea el engine de SQLAlchemy contra la BD relacional.
 
-engine = create_engine(DATABASE_URL)
-
-def execute_query(query: str) -> pd.DataFrame:
-    return pd.read_sql_query(query, engine)
-
-# Ejemplo de uso
-
-# query = """
-# SELECT *
-# FROM olist_customers_dataset
-# LIMIT 5;
-# """
-
-# df = execute_query(query)
-
-# df.head()
+    No se ejecuta a nivel de módulo: si DATABASE_URL no está configurada,
+    importar este módulo no debe fallar (lo llama el lifespan de FastAPI,
+    que decide si la conexión es obligatoria u opcional).
+    """
+    return create_engine(database_url)
