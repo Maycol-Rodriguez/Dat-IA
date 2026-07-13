@@ -11,6 +11,7 @@ import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from langchain_chroma import Chroma
 from langchain_community.utilities import SQLDatabase
+from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,12 @@ CHROMA_PATH = "./chroma_db"
 CHROMA_HOST = os.environ.get("CHROMA_HOST")          # set by docker-compose
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 
+USE_CLOUDFLARE_LLM     = os.environ.get("USE_CLOUDFLARE_LLM", "false").lower() == "true"
+CF_ACCOUNT_ID          = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CF_API_KEY             = os.environ.get("CLOUDFLARE_API_KEY", "")
+CF_MODEL               = "@cf/qwen/qwen2.5-coder-32b-instruct"
+CF_BASE_URL            = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/v1"
+
 # Estos se inicializan en el lifespan para no bloquear el import
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
 optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
@@ -68,13 +75,23 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
 
     # Inicializar LLM de generación SQL (LangChain) con salida estructurada
-    rag_llm = ChatGoogleGenerativeAI(
-        model=MODEL,
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.0,
-        max_output_tokens=600,
-    ).with_structured_output(RAGResponse)
-    print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+    if USE_CLOUDFLARE_LLM:
+        rag_llm = ChatOpenAI(
+            model=CF_MODEL,
+            base_url=CF_BASE_URL,
+            api_key=CF_API_KEY,
+            temperature=0.0,
+            max_tokens=600,
+        ).with_structured_output(RAGResponse, method="function_calling")
+        print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+    else:
+        rag_llm = ChatGoogleGenerativeAI(
+            model=MODEL,
+            google_api_key=GOOGLE_API_KEY,
+            temperature=0.0,
+            max_output_tokens=600,
+        ).with_structured_output(RAGResponse)
+        print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
 
     # Inicializar LLM del optimizer (LangChain, salida estructurada dentro de optimize_query)
     optimizer_llm = ChatGoogleGenerativeAI(

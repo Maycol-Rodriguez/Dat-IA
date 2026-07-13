@@ -8,8 +8,11 @@
       - "8000:8000"
     environment:
       APP_ENV: development
+      USE_CLOUDFLARE_LLM: "true"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
       # GOOGLE_API_KEY: # Tu key acá
+      CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"
+      CLOUDFLARE_API_KEY: "${CLOUDFLARE_API_KEY}"
     volumes:
       # Esto crea una carpeta local llamada .hf_cache y la conecta a la caché del contenedor
       - ./.hf_cache:/app/.cache/huggingface
