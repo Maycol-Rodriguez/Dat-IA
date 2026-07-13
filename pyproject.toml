@@ -1,18 +1,38 @@
 [project]
 name = "proyecto-final"
-version = "0.1.0"
+version = "0.2.0"
 description = "Proyecto de fin de curso de PEIAMLOPS"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    # --- LangChain core y proveedores ---
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",     # ChatGoogleGenerativeAI + GoogleGenerativeAIEmbeddings
+    "langchain-chroma>=0.2.0",           # Wrapper LangChain para ChromaDB
+    "langchain-huggingface>=0.1.0",      # HuggingFacePipeline (necesario para defog/sqlcoder)
+
+    # --- Base de datos vectorial ---
     "chromadb>=1.5.9",
+
+    # --- API ---
     "fastapi>=0.136.3",
-    "google-genai>=2.8.0",
-    "numpy<2.0.0",             # Soluciona el choque de compatibilidad con Torch
+    "uvicorn[standard]>=0.49.0",
+    "python-multipart>=0.0.32",
+
+    # --- Modelos HuggingFace (SQLPromptShield + futuro defog/sqlcoder) ---
+    "torch==2.4.1",
+    "transformers>=4.38.0",
+    "accelerate>=0.30.0",                # Requerido por from_pretrained con device_map
+    "bitsandbytes>=0.43.0",              # Quantización 4-bit para defog/sqlcoder
+
+    # --- Datos y utilidades ---
+    "numpy<2.0.0",                       # Soluciona choque de compatibilidad con Torch
     "pandas>=3.0.3",
-    "psycopg2-binary>=2.9.12",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
+
+    # --- Base de datos relacional ---
+    "psycopg2-binary>=2.9.12",
     "sqlalchemy>=2.0.50",
     "python-multipart>=0.0.32",
     "sqlalchemy>=2.0.50",
@@ -40,7 +60,7 @@ testpaths = ["tests"]
 [[tool.uv.index]]
 name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
-explicit = true 
+explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu121" }
