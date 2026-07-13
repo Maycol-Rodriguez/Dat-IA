@@ -1,29 +1,4 @@
-"""API FastAPI para consultar esquemas DDL con LangChain + Gemini/ChromaDB.
-
-Migración a LangChain
-----------------------
-Este módulo dejó de llamar directamente al SDK `google-genai` para las dos
-operaciones que le pertenecen (generar SQL y generar embeddings). Ambas
-pasan ahora por LangChain:
-
-- `sql_llm`         -> LangChain `Runnable` usado para generar SQL.
-- `embeddings_model` -> LangChain `Embeddings` usado para vectorizar texto.
-
-La idea es que el resto de la app (retrieval, memoria de consultas,
-ingesta) no conozca el proveedor concreto: solo llama a `embed_texts(...)`
-y `build_rag_response(...)`. Esto permite reemplazar Gemini por
-`defog/sqlcoder` (u otro modelo) cambiando únicamente `build_sql_llm()`,
-sin tocar el resto del archivo. Ver el docstring de esa función para el
-plan de migración concreto.
-
-Nota sobre `app/optimizer/query_optimizer.py`: ese módulo no se modificó
-(no se compartió su código fuente) y sigue esperando un cliente nativo de
-`google-genai` con la interfaz `client.models.generate_content(...)`. Por
-eso `gemini_client` (el cliente nativo) se mantiene junto a los nuevos
-objetos de LangChain, solo para pasárselo a `optimize_query`. Si quieres
-migrar también ese módulo a LangChain, compárteme su código y lo adapto
-igual que aquí.
-"""
+"""API FastAPI para consultar esquemas DDL con Gemini (vía LangChain) y ChromaDB."""
 
 import json
 import os
@@ -37,12 +12,6 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from langchain_chroma import Chroma
 from langchain_community.utilities import SQLDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from google import genai
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import Runnable
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, Field
 
 from app.db.connect_db import create_db_engine
@@ -83,100 +52,6 @@ image_collection = None
 shield_tokenizer = None
 shield_model = None
 sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
-
-
-# ---------------------------------------------------------------------------
-# Fábricas de componentes LangChain (punto único de swap de proveedor)
-# ---------------------------------------------------------------------------
-
-def build_sql_llm() -> Runnable:
-    """Devuelve el LLM usado para generar SQL, envuelto en LangChain.
-
-    Hoy: Gemini vía `langchain-google-genai`.
-
-    Plan de migración a defog/sqlcoder
-    -----------------------------------
-    `sqlcoder` es un modelo causal de HuggingFace (no un chat model), y solo
-    sabe completar el bloque `[SQL]` de un prompt con el estilo usado en
-    `SQL_GENERATION_PROMPT` (que ya sigue el formato oficial de sqlcoder:
-    Task / Instructions / Database Schema / Answer). Por eso
-    `build_rag_response` no le pide al LLM que devuelva JSON: solo texto SQL
-    plano, que es exactamente lo que sqlcoder puede producir.
-
-    Para migrar, basta con reemplazar el cuerpo de esta función por algo
-    como:
-
-        from langchain_huggingface import HuggingFacePipeline
-        from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-
-        tokenizer = AutoTokenizer.from_pretrained("defog/sqlcoder-7b-2")
-        causal_model = AutoModelForCausalLM.from_pretrained(
-            "defog/sqlcoder-7b-2",
-            device_map="auto",
-            torch_dtype=torch.float16,
-        )
-        text_generation_pipeline = pipeline(
-            "text-generation",
-            model=causal_model,
-            tokenizer=tokenizer,
-            max_new_tokens=600,
-            do_sample=False,
-        )
-        return HuggingFacePipeline(pipeline=text_generation_pipeline)
-
-    Ni `build_sql_chain` ni `build_rag_response` necesitan cambiar: ambos
-    proveedores exponen la interfaz `Runnable` de LangChain (`invoke`,
-    composición con `|`).
-    """
-    return ChatGoogleGenerativeAI(
-        model=MODEL,
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.0,
-        max_output_tokens=600,
-    )
-
-
-def build_embeddings_model() -> Embeddings:
-    """Devuelve el modelo de embeddings envuelto en LangChain (`Embeddings`).
-
-    Mantenerlo detrás de esta función permite cambiar de proveedor (por
-    ejemplo, a un modelo de embeddings local) sin tocar `embed_texts` ni
-    ningún otro código, que solo conoce la interfaz `Embeddings` de
-    LangChain.
-    """
-    return GoogleGenerativeAIEmbeddings(
-        model=EMBED_MODEL,
-        google_api_key=GOOGLE_API_KEY,
-    )
-
-
-# Prompt de generación de SQL (formato compatible con defog/sqlcoder)
-SQL_GENERATION_PROMPT = PromptTemplate.from_template(
-    """### Task
-Generate a SQL query to answer [QUESTION]{question}[/QUESTION]
-
-### Instructions
-- If you cannot answer the question with the available database schema, return 'I do not know'
-
-### Database Schema
-The query will run on a database with the following schema:
-{ddl}
-
-### Answer
-Given the database schema, here is the SQL query that answers [QUESTION]{question}[/QUESTION]
-[SQL]
-"""
-)
-
-
-def build_sql_chain() -> Runnable:
-    """Arma la cadena LCEL: prompt -> LLM -> texto plano.
-
-    `sql_llm` se resuelve en runtime desde la variable global inicializada
-    en el lifespan, así que cambiar de proveedor (ver `build_sql_llm`) no
-    requiere tocar esta función.
-    """
-    return SQL_GENERATION_PROMPT | sql_llm | StrOutputParser()
 
 
 # ---------------------------------------------------------------------------
