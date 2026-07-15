@@ -446,6 +446,57 @@ def search_query_memory_v2(
     return ranked_results[:n_results]
 
 
+
+def search_query_memory_v2_for_record(
+    collection: Chroma,
+    record: QueryMemoryV2Record,
+    *,
+    n_results: int = 3,
+    distance_threshold: float = 0.7,
+) -> list[dict[str, Any]]:
+    """Busca memorias compatibles con toda la estructura de una consulta.
+
+    Además de la similitud semántica, exige coincidencia de intención,
+    métricas, filtros y rango de fechas. Esta es la función recomendada
+    cuando la consulta ya fue procesada por el optimizador.
+    """
+    if n_results <= 0:
+        return []
+
+    candidate_limit = max(n_results * 5, n_results)
+
+    candidates = search_query_memory_v2(
+        collection,
+        query=build_query_memory_v2_document(record),
+        n_results=candidate_limit,
+        distance_threshold=distance_threshold,
+        validated_only=True,
+        intent=record.intent,
+        required_metrics=record.metrics,
+    )
+
+    compatible_results = []
+
+    for candidate in candidates:
+        metadata = candidate["metadata"]
+
+        memory_filters = _normalize_filters(
+            metadata.get("filters") or [],
+        )
+        memory_date_range = _normalize_date_range(
+            metadata.get("date_range"),
+        )
+
+        if memory_filters != record.filters:
+            continue
+
+        if memory_date_range != record.date_range:
+            continue
+
+        compatible_results.append(candidate)
+
+    return compatible_results[:n_results]
+
 def _as_utc_iso(now: datetime | None = None) -> str:
     current_time = now or datetime.now(timezone.utc)
 
