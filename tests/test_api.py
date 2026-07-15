@@ -81,6 +81,292 @@ def test_memory_search_returns_503_when_memory_is_not_initialized() -> None:
 
     assert response.status_code == 503
 
+
+
+class _MemoryV2RawCollection:
+    def __init__(self, metadatas) -> None:
+        self.metadatas = metadatas
+
+    def get(self, include=None):
+        _ = include
+        return {
+            "ids": [
+                f"memory-{index}"
+                for index in range(len(self.metadatas))
+            ],
+            "metadatas": self.metadatas,
+        }
+
+
+class _MemoryV2InspectionCollection:
+    def __init__(
+        self,
+        *,
+        metadatas=None,
+        search_results=None,
+    ) -> None:
+        self._collection = _MemoryV2RawCollection(
+            metadatas or [],
+        )
+        self.search_results = search_results or []
+
+    def similarity_search_with_score(
+        self,
+        query: str,
+        k: int = 10,
+    ):
+        _ = query, k
+        return self.search_results
+
+
+def _memory_v2_metadata(
+    *,
+    memory_id: str,
+    validated: bool,
+    retrieval_count: int,
+) -> dict:
+    return {
+        "memory_id": memory_id,
+        "original_question": "Pregunta original",
+        "normalized_question": "Pregunta normalizada",
+        "intent": "aggregation",
+        "metrics_json": '["revenue"]',
+        "filters_json": (
+            '[{"field":"state","operator":"=","value":"SP"}]'
+        ),
+        "date_range_json": (
+            '{"start":"2018-01-01","end":"2018-12-31"}'
+        ),
+        "group_by_json": '["month"]',
+        "context_json": '["sales"]',
+        "sql": "SELECT SUM(revenue) FROM sales;",
+        "sources": "sales",
+        "status": "success",
+        "validated": validated,
+        "execution_status": (
+            "success" if validated else "not_executed"
+        ),
+        "usage_count": 2,
+        "retrieval_count": retrieval_count,
+        "created_at": "2026-07-15T10:00:00+00:00",
+        "updated_at": "2026-07-15T11:00:00+00:00",
+        "last_used_at": (
+            "2026-07-15T12:00:00+00:00"
+            if retrieval_count
+            else ""
+        ),
+    }
+
+
+def test_memory_v2_stats_returns_not_initialized(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        None,
+    )
+
+    response = client.get("/memory/v2/stats")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body == {
+        "collection": "query_memory_v2",
+        "total": 0,
+        "validated": 0,
+        "provisional": 0,
+        "total_retrievals": 0,
+        "status": "not_initialized",
+    }
+
+
+def test_memory_v2_stats_aggregates_collection(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    collection = _MemoryV2InspectionCollection(
+        metadatas=[
+            _memory_v2_metadata(
+                memory_id="validated-1",
+                validated=True,
+                retrieval_count=3,
+            ),
+            _memory_v2_metadata(
+                memory_id="validated-2",
+                validated=True,
+                retrieval_count=2,
+            ),
+            _memory_v2_metadata(
+                memory_id="provisional-1",
+                validated=False,
+                retrieval_count=0,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.get("/memory/v2/stats")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["total"] == 3
+    assert body["validated"] == 2
+    assert body["provisional"] == 1
+    assert body["total_retrievals"] == 5
+    assert body["status"] == "ok"
+
+
+def test_memory_v2_search_returns_decoded_results(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    metadata = _memory_v2_metadata(
+        memory_id="validated-1",
+        validated=True,
+        retrieval_count=4,
+    )
+    collection = _MemoryV2InspectionCollection(
+        search_results=[
+            (
+                Document(
+                    page_content="Memoria de ventas.",
+                    metadata=metadata,
+                ),
+                0.25,
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={
+            "question": "Ventas mensuales en SP durante 2018",
+            "n_results": 5,
+            "distance_threshold": 0.7,
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert len(body["results"]) == 1
+
+    result = body["results"][0]
+
+    assert result["memory_id"] == "validated-1"
+    assert result["metrics"] == ["revenue"]
+    assert result["filters"] == [
+        {
+            "field": "state",
+            "operator": "=",
+            "value": "SP",
+        }
+    ]
+    assert result["date_range"] == {
+        "start": "2018-01-01",
+        "end": "2018-12-31",
+    }
+    assert result["group_by"] == ["month"]
+    assert result["validated"] is True
+    assert result["retrieval_count"] == 4
+    assert result["distance"] == 0.25
+
+
+def test_memory_v2_search_filters_validation_status(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    validated_metadata = _memory_v2_metadata(
+        memory_id="validated-1",
+        validated=True,
+        retrieval_count=1,
+    )
+    provisional_metadata = _memory_v2_metadata(
+        memory_id="provisional-1",
+        validated=False,
+        retrieval_count=0,
+    )
+
+    collection = _MemoryV2InspectionCollection(
+        search_results=[
+            (
+                Document(
+                    page_content="Validada",
+                    metadata=validated_metadata,
+                ),
+                0.10,
+            ),
+            (
+                Document(
+                    page_content="Provisional",
+                    metadata=provisional_metadata,
+                ),
+                0.20,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={
+            "question": "Ventas",
+            "validated": False,
+            "n_results": 10,
+            "distance_threshold": 0.7,
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert len(body["results"]) == 1
+    assert (
+        body["results"][0]["memory_id"]
+        == "provisional-1"
+    )
+    assert body["results"][0]["validated"] is False
+
+
+def test_memory_v2_search_returns_503_when_not_initialized(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        None,
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={"question": "Ventas mensuales"},
+    )
+
+    assert response.status_code == 503
+
+
 def test_query_optimize_returns_normalized_response() -> None:
     response = client.post(
         "/query/optimize",

@@ -304,6 +304,49 @@ class MemoryStatsResponse(BaseModel):
     status: str
 
 
+class MemoryV2StatsResponse(BaseModel):
+    collection: str
+    total: int
+    validated: int
+    provisional: int
+    total_retrievals: int
+    status: str
+
+
+class MemoryV2SearchRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    n_results: int = Field(default=10, ge=1, le=50)
+    distance_threshold: float = Field(default=0.7, ge=0.0)
+    validated: bool | None = None
+
+
+class MemoryV2SearchResult(BaseModel):
+    memory_id: str
+    original_question: str
+    normalized_question: str
+    intent: str
+    metrics: list[str]
+    filters: list[dict[str, str]]
+    date_range: dict[str, str] | None
+    group_by: list[str]
+    context: list[str]
+    sql: str
+    sources: str
+    status: str
+    validated: bool
+    execution_status: str
+    usage_count: int
+    retrieval_count: int
+    created_at: str
+    updated_at: str
+    last_used_at: str
+    distance: float
+
+
+class MemoryV2SearchResponse(BaseModel):
+    results: list[MemoryV2SearchResult]
+
+
 class QueryOptimizeFilter(BaseModel):
     field: str
     operator: str
@@ -325,6 +368,90 @@ class QueryOptimizeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
 # ---------------------------------------------------------------------------
+
+def _parse_memory_v2_json(
+    metadata: dict,
+    key: str,
+    default,
+):
+    """Decodifica campos JSON almacenados en metadata de Chroma."""
+    value = metadata.get(key)
+
+    if value is None or value == "":
+        return default
+
+    if isinstance(value, (list, dict)):
+        return value
+
+    try:
+        return json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+
+
+def _memory_v2_metadata_to_result(
+    metadata: dict,
+    distance: float,
+) -> MemoryV2SearchResult:
+    """Convierte metadata persistida en una respuesta de inspección."""
+    validated_value = metadata.get("validated", False)
+
+    if isinstance(validated_value, bool):
+        validated = validated_value
+    else:
+        validated = str(validated_value).lower() == "true"
+
+    return MemoryV2SearchResult(
+        memory_id=str(metadata.get("memory_id") or ""),
+        original_question=str(
+            metadata.get("original_question") or ""
+        ),
+        normalized_question=str(
+            metadata.get("normalized_question") or ""
+        ),
+        intent=str(metadata.get("intent") or ""),
+        metrics=_parse_memory_v2_json(
+            metadata,
+            "metrics_json",
+            [],
+        ),
+        filters=_parse_memory_v2_json(
+            metadata,
+            "filters_json",
+            [],
+        ),
+        date_range=_parse_memory_v2_json(
+            metadata,
+            "date_range_json",
+            None,
+        ),
+        group_by=_parse_memory_v2_json(
+            metadata,
+            "group_by_json",
+            [],
+        ),
+        context=_parse_memory_v2_json(
+            metadata,
+            "context_json",
+            [],
+        ),
+        sql=str(metadata.get("sql") or ""),
+        sources=str(metadata.get("sources") or ""),
+        status=str(metadata.get("status") or ""),
+        validated=validated,
+        execution_status=str(
+            metadata.get("execution_status") or ""
+        ),
+        usage_count=int(metadata.get("usage_count") or 0),
+        retrieval_count=int(
+            metadata.get("retrieval_count") or 0
+        ),
+        created_at=str(metadata.get("created_at") or ""),
+        updated_at=str(metadata.get("updated_at") or ""),
+        last_used_at=str(metadata.get("last_used_at") or ""),
+        distance=float(distance),
+    )
+
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Genera embeddings con gemini-embedding-2 vía LangChain (batching interno)."""
@@ -766,6 +893,113 @@ def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
             for result in results
         ]
     )
+
+
+@app.get(
+    "/memory/v2/stats",
+    response_model=MemoryV2StatsResponse,
+)
+def memory_v2_stats() -> MemoryV2StatsResponse:
+    """Devuelve estadísticas de la colección Query Memory V2."""
+    if query_memory_v2_collection is None:
+        return MemoryV2StatsResponse(
+            collection="query_memory_v2",
+            total=0,
+            validated=0,
+            provisional=0,
+            total_retrievals=0,
+            status="not_initialized",
+        )
+
+    stored = query_memory_v2_collection._collection.get(
+        include=["metadatas"],
+    )
+    metadatas = stored.get("metadatas") or []
+
+    validated_count = 0
+    total_retrievals = 0
+
+    for metadata in metadatas:
+        raw_metadata = metadata or {}
+        validated_value = raw_metadata.get(
+            "validated",
+            False,
+        )
+
+        is_validated = (
+            validated_value
+            if isinstance(validated_value, bool)
+            else str(validated_value).lower() == "true"
+        )
+
+        if is_validated:
+            validated_count += 1
+
+        total_retrievals += int(
+            raw_metadata.get("retrieval_count") or 0
+        )
+
+    total = len(metadatas)
+
+    return MemoryV2StatsResponse(
+        collection="query_memory_v2",
+        total=total,
+        validated=validated_count,
+        provisional=total - validated_count,
+        total_retrievals=total_retrievals,
+        status="ok",
+    )
+
+
+@app.post(
+    "/memory/v2/search",
+    response_model=MemoryV2SearchResponse,
+)
+def memory_v2_search(
+    request: MemoryV2SearchRequest,
+) -> MemoryV2SearchResponse:
+    """Busca memorias V2 para inspección sin registrar su uso RAG."""
+    if query_memory_v2_collection is None:
+        raise HTTPException(
+            503,
+            "La memoria de consultas V2 no está inicializada.",
+        )
+
+    candidate_count = min(
+        max(request.n_results * 3, 10),
+        100,
+    )
+    candidates = (
+        query_memory_v2_collection
+        .similarity_search_with_score(
+            request.question,
+            k=candidate_count,
+        )
+    )
+
+    results = []
+
+    for document, distance in candidates:
+        if distance > request.distance_threshold:
+            continue
+
+        result = _memory_v2_metadata_to_result(
+            document.metadata,
+            distance,
+        )
+
+        if (
+            request.validated is not None
+            and result.validated != request.validated
+        ):
+            continue
+
+        results.append(result)
+
+        if len(results) >= request.n_results:
+            break
+
+    return MemoryV2SearchResponse(results=results)
 
 
 @app.post("/query/json", response_model=RAGResponse)
