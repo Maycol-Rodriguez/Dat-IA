@@ -22,10 +22,13 @@ from app.memory.query_memory import (
     search_query_memory,
 )
 from app.memory.query_memory_v2 import (
+    create_query_memory_v2_record,
     get_or_create_query_memory_v2_collection,
+    search_query_memory_v2_for_record,
+    upsert_query_memory_v2,
 )
 
-from app.optimizer.query_optimizer import optimize_query
+from app.optimizer.query_optimizer import OptimizedQuery, optimize_query
 
 import torch
 from transformers import AutoTokenizer\
@@ -365,6 +368,112 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.7) ->
     ddls = '\n'.join(listDdls)
 
     return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
+
+
+def _build_query_memory_v2_record(
+    optimized_query: OptimizedQuery,
+    *,
+    sql: str,
+    sources: str,
+    status: str,
+    validated: bool,
+    execution_status: str,
+):
+    """Convierte la salida del optimizer en un registro de memoria V2."""
+    filters = [
+        {
+            "field": query_filter.field,
+            "operator": query_filter.operator,
+            "value": query_filter.value,
+        }
+        for query_filter in optimized_query.filters
+    ]
+
+    return create_query_memory_v2_record(
+        original_question=optimized_query.original_question,
+        normalized_question=optimized_query.normalized_question,
+        intent=optimized_query.intent,
+        metrics=optimized_query.metrics,
+        filters=filters,
+        date_range=optimized_query.date_range,
+        group_by=optimized_query.group_by,
+        context=optimized_query.context,
+        sql=sql,
+        sources=sources,
+        status=status,
+        validated=validated,
+        execution_status=execution_status,
+        model=MODEL,
+    )
+
+
+def _search_query_memory_v2_examples(
+    optimized_query: OptimizedQuery,
+    *,
+    n_results: int = 2,
+    distance_threshold: float = 0.7,
+) -> list[dict]:
+    """Recupera memorias validadas sin bloquear el flujo principal."""
+    if query_memory_v2_collection is None:
+        return []
+
+    try:
+        query_record = _build_query_memory_v2_record(
+            optimized_query,
+            sql="",
+            sources="",
+            status="candidate",
+            validated=False,
+            execution_status="not_executed",
+        )
+
+        return search_query_memory_v2_for_record(
+            query_memory_v2_collection,
+            query_record,
+            n_results=n_results,
+            distance_threshold=distance_threshold,
+        )
+    except Exception as exc:
+        print(
+            "[memory-v2] ADVERTENCIA: No se pudieron recuperar "
+            f"ejemplos: {exc}"
+        )
+        return []
+
+
+def _save_query_memory_v2(
+    optimized_query: OptimizedQuery,
+    *,
+    sql: str,
+    sources: str,
+    status: str,
+    validated: bool,
+    execution_status: str,
+):
+    """Guarda una memoria V2 sin interrumpir la consulta principal."""
+    if query_memory_v2_collection is None:
+        return None
+
+    try:
+        record = _build_query_memory_v2_record(
+            optimized_query,
+            sql=sql,
+            sources=sources,
+            status=status,
+            validated=validated,
+            execution_status=execution_status,
+        )
+
+        return upsert_query_memory_v2(
+            query_memory_v2_collection,
+            record,
+        )
+    except Exception as exc:
+        print(
+            "[memory-v2] ADVERTENCIA: No se pudo guardar "
+            f"la consulta: {exc}"
+        )
+        return None
 
 
 def _format_query_memory_examples(
@@ -719,6 +828,11 @@ async def query_answer(request: QueryRequest):
         raise HTTPException(422, str(exc)) from exc
 
     query_for_generation = optimized_query.normalized_question
+    memory_examples = _search_query_memory_v2_examples(
+        optimized_query,
+        n_results=2,
+        distance_threshold=0.7,
+    )
 
     resp = query_embeddings(
         text_collection,
@@ -729,7 +843,11 @@ async def query_answer(request: QueryRequest):
     if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
 
-    rag_response = build_rag_response(query_for_generation, resp.ddl)
+    rag_response = build_rag_response(
+        query_for_generation,
+        resp.ddl,
+        memory_examples=memory_examples,
+    )
 
     if rag_response.sources == "":
         return AnswerResponse(
@@ -755,7 +873,21 @@ async def query_answer(request: QueryRequest):
         )
 
     rows = execution["rows"]
-    answer_text = synthesize_answer(answer_llm, request.question, rag_response.sql, rows)
+    answer_text = synthesize_answer(
+        answer_llm,
+        request.question,
+        rag_response.sql,
+        rows,
+    )
+
+    _save_query_memory_v2(
+        optimized_query,
+        sql=rag_response.sql,
+        sources=rag_response.sources,
+        status="success",
+        validated=True,
+        execution_status="success",
+    )
 
     if query_memory_collection is not None:
         try:

@@ -503,8 +503,12 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
             ddl="CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
         )
 
-    def fake_build_rag_response(question: str, ddl: str):
-        _ = question, ddl
+    def fake_build_rag_response(
+        question: str,
+        ddl: str,
+        memory_examples=None,
+    ):
+        _ = question, ddl, memory_examples
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
             sources="carriers",
@@ -515,6 +519,11 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
     monkeypatch.setattr(main_module, "classify_shield", lambda text: (shield_label, 0.99))
     monkeypatch.setattr(main_module, "text_collection", FakeAnswerCollection())
     monkeypatch.setattr(main_module, "query_memory_collection", None)
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        None,
+    )
     monkeypatch.setattr(main_module, "sql_database", object())
     monkeypatch.setattr(main_module, "query_embeddings", fake_query_embeddings)
     monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response)
@@ -560,6 +569,250 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
     assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;"
 
 
+
+
+def test_query_answer_uses_and_saves_query_memory_v2(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    memory_collection = object()
+    captured = {}
+
+    memory_example = {
+        "metadata": {
+            "normalized_question": (
+                "Listar transportistas ordenados por mayor "
+                "tasa de cumplimiento de entrega."
+            ),
+            "sql": (
+                "SELECT carrier_name FROM carriers "
+                "ORDER BY on_time_rate DESC LIMIT 1;"
+            ),
+            "sources": "carriers",
+            "validated": True,
+            "execution_status": "success",
+        },
+        "distance": 0.12,
+    }
+
+    def fake_search(
+        collection,
+        record,
+        *,
+        n_results: int,
+        distance_threshold: float,
+    ):
+        captured["search_collection"] = collection
+        captured["search_record"] = record
+        captured["n_results"] = n_results
+        captured["distance_threshold"] = distance_threshold
+        return [memory_example]
+
+    def fake_build_rag_response(
+        question: str,
+        ddl: str,
+        memory_examples=None,
+    ):
+        captured["generation_question"] = question
+        captured["ddl"] = ddl
+        captured["memory_examples"] = memory_examples
+
+        return main_module.RAGResponse(
+            sql=(
+                "SELECT carrier_name FROM carriers "
+                "ORDER BY on_time_rate DESC LIMIT 1;"
+            ),
+            sources="carriers",
+            confidence_note="Usa on_time_rate.",
+            status="success",
+        )
+
+    def fake_upsert(collection, record):
+        captured["saved_collection"] = collection
+        captured["saved_record"] = record
+        return record
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        memory_collection,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "search_query_memory_v2_for_record",
+        fake_search,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_rag_response",
+        fake_build_rag_response,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        fake_upsert,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {
+            "rows": [
+                {
+                    "carrier_name": "DHL",
+                    "on_time_rate": 0.97,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows: (
+            "El transportista con mejor cumplimiento es DHL."
+        ),
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+    assert captured["search_collection"] is memory_collection
+    assert captured["n_results"] == 2
+    assert captured["distance_threshold"] == 0.7
+    assert captured["memory_examples"] == [memory_example]
+
+    search_record = captured["search_record"]
+    assert search_record.validated is False
+    assert search_record.execution_status == "not_executed"
+    assert search_record.intent == "ranking"
+    assert "on_time_rate" in search_record.metrics
+
+    saved_record = captured["saved_record"]
+    assert captured["saved_collection"] is memory_collection
+    assert saved_record.validated is True
+    assert saved_record.execution_status == "success"
+    assert saved_record.status == "success"
+    assert saved_record.sql.startswith("SELECT carrier_name")
+
+
+def test_query_answer_memory_v2_failure_does_not_break_flow(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    def fail_search(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("Chroma search failed")
+
+    def fail_upsert(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("Chroma upsert failed")
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        object(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "search_query_memory_v2_for_record",
+        fail_search,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        fail_upsert,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {
+            "rows": [{"carrier_name": "DHL"}]
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows: (
+            "El transportista es DHL."
+        ),
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_query_answer_does_not_validate_failed_execution(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+    saved_records = []
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        object(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "search_query_memory_v2_for_record",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        lambda collection, record: saved_records.append(record),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {
+            "error": "no such table: carriers"
+        },
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert saved_records == []
+
+
 def test_query_answer_returns_error_status_when_execution_fails(monkeypatch) -> None:
     from app import main as main_module
 
@@ -601,8 +854,12 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
 
     _mock_answer_pipeline(monkeypatch)
 
-    def fake_build_rag_response_unknown(question: str, ddl: str):
-        _ = question, ddl
+    def fake_build_rag_response_unknown(
+        question: str,
+        ddl: str,
+        memory_examples=None,
+    ):
+        _ = question, ddl, memory_examples
         return main_module.RAGResponse(
             sql="I do not know",
             sources="",
