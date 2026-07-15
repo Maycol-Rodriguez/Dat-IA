@@ -14,6 +14,7 @@ from app.memory.query_memory_v2 import (
     get_or_create_query_memory_v2_collection,
     parse_query_memory_v2_metadata,
     search_query_memory_v2,
+    search_query_memory_v2_for_record,
     upsert_query_memory_v2,
 )
 
@@ -252,6 +253,7 @@ def _create_test_record(
     sql: str = "SELECT 1;",
     intent: str = "ranking",
     metrics: list[str] | None = None,
+    group_by: list[str] | None = None,
 ):
     return create_query_memory_v2_record(
         original_question=normalized_question,
@@ -260,6 +262,7 @@ def _create_test_record(
         metrics=metrics or ["on_time_rate"],
         filters=filters or [],
         date_range=None,
+        group_by=group_by or [],
         context=["logistica"],
         sql=sql,
         sources="carriers",
@@ -491,3 +494,82 @@ def test_search_can_filter_by_intent_and_required_metrics() -> None:
     assert len(results) == 1
     assert results[0]["metadata"]["intent"] == "aggregation"
     assert results[0]["metadata"]["metrics"] == ["revenue"]
+
+
+
+def test_fingerprint_changes_when_group_by_changes() -> None:
+    common_arguments = {
+        "normalized_question": "Calcular ventas totales.",
+        "intent": "aggregation",
+        "metrics": ["revenue"],
+        "filters": [],
+        "date_range": None,
+    }
+
+    monthly = build_query_memory_v2_fingerprint(
+        **common_arguments,
+        group_by=["month"],
+    )
+    by_state = build_query_memory_v2_fingerprint(
+        **common_arguments,
+        group_by=["state"],
+    )
+
+    assert monthly != by_state
+
+
+def test_structured_search_excludes_different_group_by() -> None:
+    monthly = _create_test_record(
+        normalized_question="Calcular ventas totales.",
+        intent="aggregation",
+        metrics=["revenue"],
+        group_by=["month"],
+    )
+    by_state = _create_test_record(
+        normalized_question="Calcular ventas totales.",
+        intent="aggregation",
+        metrics=["revenue"],
+        group_by=["state"],
+    )
+    query_record = _create_test_record(
+        normalized_question="Calcular ventas totales.",
+        intent="aggregation",
+        metrics=["revenue"],
+        group_by=["month"],
+        validated=False,
+        execution_status="not_executed",
+    )
+
+    collection = _FakeSearchCollection(
+        [
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(
+                        by_state,
+                    ),
+                    metadata=by_state.to_metadata(),
+                ),
+                0.05,
+            ),
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(
+                        monthly,
+                    ),
+                    metadata=monthly.to_metadata(),
+                ),
+                0.10,
+            ),
+        ]
+    )
+
+    results = search_query_memory_v2_for_record(
+        collection,
+        query_record,
+        distance_threshold=0.70,
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["fingerprint"] == (
+        monthly.fingerprint
+    )

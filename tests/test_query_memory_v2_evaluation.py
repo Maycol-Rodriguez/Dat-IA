@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import unicodedata
 from pathlib import Path
@@ -132,6 +132,7 @@ def _record_from_memory(memory: dict):
         metrics=memory["metrics"],
         filters=memory["filters"],
         date_range=memory["date_range"],
+        group_by=memory.get("group_by", []),
         context=memory["context"],
         sql=memory["sql"],
         sources=memory["sources"],
@@ -149,6 +150,7 @@ def _record_from_case(case: dict):
         metrics=case["metrics"],
         filters=case["filters"],
         date_range=case["date_range"],
+        group_by=case.get("group_by", []),
         context=case["context"],
         sql="",
         sources="",

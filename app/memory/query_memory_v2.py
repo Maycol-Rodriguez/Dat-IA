@@ -32,6 +32,7 @@ class QueryMemoryV2Record:
     metrics: list[str]
     filters: list[dict[str, str]]
     date_range: dict[str, str] | None
+    group_by: list[str]
     context: list[str]
     sql: str
     sources: str
@@ -68,6 +69,7 @@ class QueryMemoryV2Record:
                 if self.date_range is not None
                 else ""
             ),
+            "group_by_json": _canonical_json(self.group_by),
             "context_json": _canonical_json(self.context),
             "sql": self.sql,
             "sources": self.sources,
@@ -93,6 +95,7 @@ def create_query_memory_v2_record(
     metrics: list[str] | None = None,
     filters: list[dict[str, str]] | None = None,
     date_range: dict[str, str] | None = None,
+    group_by: list[str] | None = None,
     context: list[str] | None = None,
     sql: str,
     sources: str = "",
@@ -116,6 +119,7 @@ def create_query_memory_v2_record(
     normalized_metrics = _normalize_text_list(metrics or [])
     normalized_filters = _normalize_filters(filters or [])
     normalized_date_range = _normalize_date_range(date_range)
+    normalized_group_by = _normalize_text_list(group_by or [])
     normalized_context = _normalize_text_list(context or [])
 
     fingerprint = build_query_memory_v2_fingerprint(
@@ -124,6 +128,7 @@ def create_query_memory_v2_record(
         metrics=normalized_metrics,
         filters=normalized_filters,
         date_range=normalized_date_range,
+        group_by=normalized_group_by,
     )
 
     current_time = now or datetime.now(timezone.utc)
@@ -140,6 +145,7 @@ def create_query_memory_v2_record(
         metrics=normalized_metrics,
         filters=normalized_filters,
         date_range=normalized_date_range,
+        group_by=normalized_group_by,
         context=normalized_context,
         sql=sql.strip(),
         sources=sources.strip(),
@@ -162,6 +168,7 @@ def build_query_memory_v2_fingerprint(
     metrics: list[str],
     filters: list[dict[str, str]],
     date_range: dict[str, str] | None,
+    group_by: list[str] | None = None,
 ) -> str:
     """Construye una huella estable para deduplicar consultas equivalentes."""
     payload = {
@@ -172,6 +179,7 @@ def build_query_memory_v2_fingerprint(
         "metrics": _normalize_text_list(metrics),
         "filters": _normalize_filters(filters),
         "date_range": _normalize_date_range(date_range),
+        "group_by": _normalize_text_list(group_by or []),
     }
 
     encoded_payload = _canonical_json(payload).encode("utf-8")
@@ -185,6 +193,7 @@ def build_query_memory_v2_document(record: QueryMemoryV2Record) -> str:
     metadata. El embedding representa principalmente la intención de negocio.
     """
     metrics_text = ", ".join(record.metrics) or "ninguna"
+    group_by_text = ", ".join(record.group_by) or "ninguna"
     context_text = ", ".join(record.context) or "ninguno"
     filters_text = (
         _canonical_json(record.filters)
@@ -204,6 +213,7 @@ def build_query_memory_v2_document(record: QueryMemoryV2Record) -> str:
             f"Métricas: {metrics_text}",
             f"Filtros: {filters_text}",
             f"Rango de fechas: {date_range_text}",
+            f"Agrupaciones: {group_by_text}",
             f"Contexto: {context_text}",
         ]
     )
@@ -226,6 +236,10 @@ def parse_query_memory_v2_metadata(
         "date_range": _parse_json_value(
             metadata.get("date_range_json"),
             default=None,
+        ),
+        "group_by": _parse_json_value(
+            metadata.get("group_by_json"),
+            default=[],
         ),
         "context": _parse_json_value(
             metadata.get("context_json"),
@@ -480,17 +494,39 @@ def search_query_memory_v2_for_record(
     for candidate in candidates:
         metadata = candidate["metadata"]
 
+        memory_metrics = _normalize_text_list(
+            metadata.get("metrics") or [],
+        )
         memory_filters = _normalize_filters(
             metadata.get("filters") or [],
         )
         memory_date_range = _normalize_date_range(
             metadata.get("date_range"),
         )
+        memory_group_by = _normalize_text_list(
+            metadata.get("group_by") or [],
+        )
+        memory_context = set(
+            _normalize_text_list(metadata.get("context") or [])
+        )
+
+        if memory_metrics != record.metrics:
+            continue
 
         if memory_filters != record.filters:
             continue
 
         if memory_date_range != record.date_range:
+            continue
+
+        if memory_group_by != record.group_by:
+            continue
+
+        if (
+            record.context
+            and memory_context
+            and set(record.context).isdisjoint(memory_context)
+        ):
             continue
 
         compatible_results.append(candidate)
