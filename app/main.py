@@ -24,6 +24,7 @@ from app.memory.query_memory import (
 from app.memory.query_memory_v2 import (
     create_query_memory_v2_record,
     get_or_create_query_memory_v2_collection,
+    mark_query_memory_v2_results_used,
     search_query_memory_v2_for_record,
     upsert_query_memory_v2,
 )
@@ -427,12 +428,25 @@ def _search_query_memory_v2_examples(
             execution_status="not_executed",
         )
 
-        return search_query_memory_v2_for_record(
+        results = search_query_memory_v2_for_record(
             query_memory_v2_collection,
             query_record,
             n_results=n_results,
             distance_threshold=distance_threshold,
         )
+
+        try:
+            mark_query_memory_v2_results_used(
+                query_memory_v2_collection,
+                results,
+            )
+        except Exception as exc:
+            print(
+                "[memory-v2] ADVERTENCIA: No se pudo registrar "
+                f"el uso de las memorias: {exc}"
+            )
+
+        return results
     except Exception as exc:
         print(
             "[memory-v2] ADVERTENCIA: No se pudieron recuperar "

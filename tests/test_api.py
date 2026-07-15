@@ -856,6 +856,16 @@ def test_query_answer_uses_and_saves_query_memory_v2(
     )
     monkeypatch.setattr(
         main_module,
+        "mark_query_memory_v2_results_used",
+        lambda collection, results: captured.update(
+            {
+                "used_collection": collection,
+                "used_results": results,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
         "execute_sql",
         lambda db, sql, row_limit=200: {
             "rows": [
@@ -892,6 +902,8 @@ def test_query_answer_uses_and_saves_query_memory_v2(
     assert captured["n_results"] == 2
     assert captured["distance_threshold"] == 0.7
     assert captured["memory_examples"] == [memory_example]
+    assert captured["used_collection"] is memory_collection
+    assert captured["used_results"] == [memory_example]
 
     search_record = captured["search_record"]
     assert search_record.validated is False

@@ -12,6 +12,7 @@ from app.memory.query_memory_v2 import (
     build_query_memory_v2_fingerprint,
     create_query_memory_v2_record,
     get_or_create_query_memory_v2_collection,
+    mark_query_memory_v2_results_used,
     parse_query_memory_v2_metadata,
     search_query_memory_v2,
     search_query_memory_v2_for_record,
@@ -573,3 +574,135 @@ def test_structured_search_excludes_different_group_by() -> None:
     assert results[0]["metadata"]["fingerprint"] == (
         monthly.fingerprint
     )
+
+
+
+def test_mark_results_used_updates_retrieval_metadata(
+    memory_v2_collection,
+) -> None:
+    record = _create_test_record(
+        normalized_question=(
+            "Listar transportistas por mayor cumplimiento."
+        ),
+    )
+    stored_record = upsert_query_memory_v2(
+        memory_v2_collection,
+        record,
+    )
+
+    results = search_query_memory_v2_for_record(
+        memory_v2_collection,
+        stored_record,
+        n_results=1,
+        distance_threshold=float("inf"),
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["memory_id"] == (
+        record.memory_id
+    )
+
+    updated = mark_query_memory_v2_results_used(
+        memory_v2_collection,
+        results,
+        now=datetime(
+            2026,
+            7,
+            15,
+            14,
+            30,
+            tzinfo=timezone.utc,
+        ),
+    )
+
+    stored = memory_v2_collection._collection.get(
+        ids=[record.memory_id],
+        include=["metadatas"],
+    )
+    metadata = stored["metadatas"][0]
+
+    assert updated == 1
+    assert metadata["retrieval_count"] == 1
+    assert metadata["last_used_at"] == (
+        "2026-07-15T14:30:00+00:00"
+    )
+    assert results[0]["metadata"]["retrieval_count"] == 1
+
+
+def test_mark_results_used_ignores_duplicate_and_missing_ids(
+    memory_v2_collection,
+) -> None:
+    record = _create_test_record(
+        normalized_question="Contar pedidos entregados.",
+    )
+    upsert_query_memory_v2(memory_v2_collection, record)
+
+    result = {
+        "metadata": {
+            "memory_id": record.memory_id,
+        },
+        "distance": 0.1,
+    }
+
+    updated = mark_query_memory_v2_results_used(
+        memory_v2_collection,
+        [
+            result,
+            result,
+            {"metadata": {}, "distance": 0.2},
+        ],
+    )
+
+    stored = memory_v2_collection._collection.get(
+        ids=[record.memory_id],
+        include=["metadatas"],
+    )
+    metadata = stored["metadatas"][0]
+
+    assert updated == 1
+    assert metadata["retrieval_count"] == 1
+
+
+def test_query_memory_v2_persists_between_clients(
+    tmp_path,
+) -> None:
+    storage_path = tmp_path / "query-memory-v2"
+    embeddings = DeterministicFakeEmbedding(size=64)
+
+    first_client = chromadb.PersistentClient(
+        path=str(storage_path),
+    )
+    first_collection = get_or_create_query_memory_v2_collection(
+        first_client,
+        embeddings,
+    )
+
+    record = _create_test_record(
+        normalized_question=(
+            "Calcular ventas totales en SP durante 2018."
+        ),
+        filters=[
+            {"field": "state", "operator": "=", "value": "SP"},
+        ],
+        intent="aggregation",
+        metrics=["revenue"],
+    )
+    upsert_query_memory_v2(first_collection, record)
+
+    second_client = chromadb.PersistentClient(
+        path=str(storage_path),
+    )
+    second_collection = get_or_create_query_memory_v2_collection(
+        second_client,
+        embeddings,
+    )
+
+    stored = second_collection._collection.get(
+        ids=[record.memory_id],
+        include=["metadatas"],
+    )
+
+    assert second_collection._collection.count() == 1
+    assert stored["ids"] == [record.memory_id]
+    assert stored["metadatas"][0]["validated"] is True
+    assert stored["metadatas"][0]["retrieval_count"] == 0

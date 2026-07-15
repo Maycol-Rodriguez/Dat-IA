@@ -41,6 +41,7 @@ class QueryMemoryV2Record:
     execution_status: str
     fingerprint: str
     usage_count: int
+    retrieval_count: int
     created_at: str
     updated_at: str
     last_used_at: str
@@ -78,6 +79,7 @@ class QueryMemoryV2Record:
             "execution_status": self.execution_status,
             "fingerprint": self.fingerprint,
             "usage_count": self.usage_count,
+            "retrieval_count": self.retrieval_count,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_used_at": self.last_used_at,
@@ -154,6 +156,7 @@ def create_query_memory_v2_record(
         execution_status=execution_status.strip() or "unknown",
         fingerprint=fingerprint,
         usage_count=1,
+        retrieval_count=0,
         created_at=timestamp,
         updated_at=timestamp,
         last_used_at="",
@@ -321,6 +324,9 @@ def upsert_query_memory_v2(
             usage_count=int(
                 existing_metadata.get("usage_count") or 1
             ) + 1,
+            retrieval_count=int(
+                existing_metadata.get("retrieval_count") or 0
+            ),
             created_at=str(
                 existing_metadata.get("created_at")
                 or record.created_at
@@ -460,6 +466,64 @@ def search_query_memory_v2(
     return ranked_results[:n_results]
 
 
+
+
+def mark_query_memory_v2_results_used(
+    collection: Chroma,
+    results: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Registra qué memorias fueron recuperadas como ejemplos del RAG.
+
+    Actualiza retrieval_count y last_used_at sin recalcular embeddings.
+    Cada ID se actualiza como máximo una vez por llamada.
+    """
+    timestamp = _as_utc_iso(now)
+    updated_count = 0
+    processed_ids: set[str] = set()
+
+    for result in results:
+        metadata = result.get("metadata") or {}
+        memory_id = str(metadata.get("memory_id") or "").strip()
+
+        if not memory_id or memory_id in processed_ids:
+            continue
+
+        processed_ids.add(memory_id)
+
+        stored = collection._collection.get(
+            ids=[memory_id],
+            include=["metadatas"],
+        )
+        stored_ids = stored.get("ids") or []
+
+        if not stored_ids:
+            continue
+
+        stored_metadatas = stored.get("metadatas") or []
+
+        if not stored_metadatas:
+            continue
+
+        raw_metadata = dict(stored_metadatas[0] or {})
+        retrieval_count = int(
+            raw_metadata.get("retrieval_count") or 0
+        ) + 1
+
+        raw_metadata["retrieval_count"] = retrieval_count
+        raw_metadata["last_used_at"] = timestamp
+
+        collection._collection.update(
+            ids=[memory_id],
+            metadatas=[raw_metadata],
+        )
+
+        metadata["retrieval_count"] = retrieval_count
+        metadata["last_used_at"] = timestamp
+        updated_count += 1
+
+    return updated_count
 
 def search_query_memory_v2_for_record(
     collection: Chroma,
