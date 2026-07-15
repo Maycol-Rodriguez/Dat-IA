@@ -342,6 +342,205 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
     assert captured["distance_threshold"] == 0.7
 
 
+
+
+class _JsonMemoryCollection:
+    def __init__(self) -> None:
+        self._collection = self
+
+    def count(self) -> int:
+        return 1
+
+
+def _mock_query_json_memory_pipeline(
+    monkeypatch,
+    *,
+    rag_status: str = "success",
+    rag_sql: str = (
+        "SELECT carrier_name FROM carriers "
+        "ORDER BY on_time_rate DESC LIMIT 1;"
+    ),
+    rag_sources: str = "carriers",
+):
+    from app import main as main_module
+
+    def fake_query_embeddings(
+        collection,
+        query: str,
+        distance_threshold: float = 0.7,
+    ):
+        _ = collection, query, distance_threshold
+        return main_module.EmbeddingsResponse(
+            tabla=["carriers"],
+            descripcion=[
+                "Transportistas y tasa de cumplimiento."
+            ],
+            distance=[0.1],
+            ddl=(
+                "CREATE TABLE carriers "
+                "(carrier_name text, on_time_rate numeric);"
+            ),
+        )
+
+    def fake_build_rag_response(
+        question: str,
+        ddl: str,
+        memory_examples=None,
+    ):
+        _ = question, ddl, memory_examples
+        return main_module.RAGResponse(
+            sql=rag_sql,
+            sources=rag_sources,
+            confidence_note="Resultado de prueba.",
+            status=rag_status,
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "text_collection",
+        _JsonMemoryCollection(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_collection",
+        None,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "query_embeddings",
+        fake_query_embeddings,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_rag_response",
+        fake_build_rag_response,
+    )
+
+
+def test_query_json_saves_unvalidated_query_memory_v2(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_query_json_memory_pipeline(monkeypatch)
+
+    memory_collection = object()
+    captured = {}
+
+    def fake_upsert(collection, record):
+        captured["collection"] = collection
+        captured["record"] = record
+        return record
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        memory_collection,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        fake_upsert,
+    )
+
+    response = client.post(
+        "/query/json",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+
+    record = captured["record"]
+
+    assert captured["collection"] is memory_collection
+    assert record.validated is False
+    assert record.execution_status == "not_executed"
+    assert record.status == "success"
+    assert record.intent == "ranking"
+    assert "on_time_rate" in record.metrics
+    assert record.sql.startswith("SELECT carrier_name")
+    assert record.sources == "carriers"
+
+
+def test_query_json_does_not_save_unknown_memory_v2(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_query_json_memory_pipeline(
+        monkeypatch,
+        rag_status="unknown",
+        rag_sql="I do not know",
+        rag_sources="",
+    )
+
+    saved_records = []
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        object(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        lambda collection, record: saved_records.append(record),
+    )
+
+    response = client.post(
+        "/query/json",
+        json={"question": "Una pregunta sin información suficiente"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "unknown"
+    assert saved_records == []
+
+
+def test_query_json_memory_v2_failure_does_not_break_flow(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_query_json_memory_pipeline(monkeypatch)
+
+    def fail_upsert(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("Chroma upsert failed")
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        object(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        fail_upsert,
+    )
+
+    response = client.post(
+        "/query/json",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
 # ---------------------------------------------------------------------------
 # execute_sql
 # ---------------------------------------------------------------------------

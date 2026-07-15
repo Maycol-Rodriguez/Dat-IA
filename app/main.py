@@ -784,7 +784,24 @@ async def query_json(request: QueryRequest):
     
     print(f"Found table: {resp.ddl}")
 
-    rag_response = build_rag_response(query_for_generation, resp.ddl)
+    rag_response = build_rag_response(
+        query_for_generation,
+        resp.ddl,
+    )
+
+    if (
+        rag_response.status == "success"
+        and rag_response.sources
+        and "i do not know" not in rag_response.sql.lower()
+    ):
+        _save_query_memory_v2(
+            optimized_query,
+            sql=rag_response.sql,
+            sources=rag_response.sources,
+            status=rag_response.status,
+            validated=False,
+            execution_status="not_executed",
+        )
 
     if query_memory_collection is not None:
         try:
