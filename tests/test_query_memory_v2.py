@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 
+import chromadb
 import pytest
+from langchain_core.documents import Document
+from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from app.memory.query_memory_v2 import (
     QUERY_MEMORY_V2_COLLECTION,
@@ -8,7 +11,10 @@ from app.memory.query_memory_v2 import (
     build_query_memory_v2_document,
     build_query_memory_v2_fingerprint,
     create_query_memory_v2_record,
+    get_or_create_query_memory_v2_collection,
     parse_query_memory_v2_metadata,
+    search_query_memory_v2,
+    upsert_query_memory_v2,
 )
 
 
@@ -208,3 +214,280 @@ def test_record_rejects_empty_normalized_question() -> None:
             intent="detail",
             sql="SELECT 1;",
         )
+
+
+@pytest.fixture
+def memory_v2_collection():
+    chroma_client = chromadb.EphemeralClient()
+
+    try:
+        chroma_client.delete_collection(
+            QUERY_MEMORY_V2_COLLECTION,
+        )
+    except Exception:
+        pass
+
+    embeddings = DeterministicFakeEmbedding(size=64)
+    collection = get_or_create_query_memory_v2_collection(
+        chroma_client,
+        embeddings,
+    )
+
+    yield collection
+
+    try:
+        chroma_client.delete_collection(
+            QUERY_MEMORY_V2_COLLECTION,
+        )
+    except Exception:
+        pass
+
+
+def _create_test_record(
+    *,
+    normalized_question: str,
+    filters: list[dict[str, str]] | None = None,
+    validated: bool = True,
+    execution_status: str = "success",
+    sql: str = "SELECT 1;",
+    intent: str = "ranking",
+    metrics: list[str] | None = None,
+):
+    return create_query_memory_v2_record(
+        original_question=normalized_question,
+        normalized_question=normalized_question,
+        intent=intent,
+        metrics=metrics or ["on_time_rate"],
+        filters=filters or [],
+        date_range=None,
+        context=["logistica"],
+        sql=sql,
+        sources="carriers",
+        validated=validated,
+        execution_status=execution_status,
+        model="test-model",
+    )
+
+
+def test_get_or_create_query_memory_v2_collection(
+    memory_v2_collection,
+) -> None:
+    assert memory_v2_collection._collection.name == (
+        QUERY_MEMORY_V2_COLLECTION
+    )
+    assert memory_v2_collection._collection.count() == 0
+
+
+def test_upsert_deduplicates_and_increments_usage_count(
+    memory_v2_collection,
+) -> None:
+    record = _create_test_record(
+        normalized_question=(
+            "Listar transportistas por mayor cumplimiento."
+        ),
+    )
+
+    first = upsert_query_memory_v2(
+        memory_v2_collection,
+        record,
+        now=datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc),
+    )
+    second = upsert_query_memory_v2(
+        memory_v2_collection,
+        record,
+        now=datetime(2026, 7, 15, 11, 0, tzinfo=timezone.utc),
+    )
+
+    stored = memory_v2_collection._collection.get(
+        ids=[record.memory_id],
+        include=["metadatas"],
+    )
+    metadata = stored["metadatas"][0]
+
+    assert memory_v2_collection._collection.count() == 1
+    assert first.memory_id == second.memory_id
+    assert second.usage_count == 2
+    assert metadata["usage_count"] == 2
+    assert metadata["updated_at"] == "2026-07-15T11:00:00+00:00"
+
+
+def test_unvalidated_upsert_does_not_degrade_validated_memory(
+    memory_v2_collection,
+) -> None:
+    valid_record = _create_test_record(
+        normalized_question="Contar pedidos entregados.",
+        sql="SELECT COUNT(*) FROM orders WHERE status = 'delivered';",
+    )
+    invalid_record = _create_test_record(
+        normalized_question="Contar pedidos entregados.",
+        validated=False,
+        execution_status="not_executed",
+        sql="SELECT consulta_incorrecta;",
+    )
+
+    upsert_query_memory_v2(memory_v2_collection, valid_record)
+    merged = upsert_query_memory_v2(
+        memory_v2_collection,
+        invalid_record,
+    )
+
+    assert merged.validated is True
+    assert merged.execution_status == "success"
+    assert merged.sql == valid_record.sql
+    assert merged.usage_count == 2
+
+
+def test_different_filters_create_different_memories(
+    memory_v2_collection,
+) -> None:
+    question = "Calcular ventas por estado."
+
+    sp_record = _create_test_record(
+        normalized_question=question,
+        filters=[
+            {"field": "state", "operator": "=", "value": "SP"},
+        ],
+    )
+    rj_record = _create_test_record(
+        normalized_question=question,
+        filters=[
+            {"field": "state", "operator": "=", "value": "RJ"},
+        ],
+    )
+
+    upsert_query_memory_v2(memory_v2_collection, sp_record)
+    upsert_query_memory_v2(memory_v2_collection, rj_record)
+
+    assert sp_record.memory_id != rj_record.memory_id
+    assert memory_v2_collection._collection.count() == 2
+
+
+class _FakeRawCollection:
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def count(self) -> int:
+        return self._count
+
+
+class _FakeSearchCollection:
+    def __init__(
+        self,
+        results: list[tuple[Document, float]],
+    ) -> None:
+        self.results = results
+        self._collection = _FakeRawCollection(len(results))
+
+    def similarity_search_with_score(
+        self,
+        query: str,
+        k: int,
+    ) -> list[tuple[Document, float]]:
+        _ = query
+        return self.results[:k]
+
+
+def test_search_excludes_unvalidated_and_far_memories() -> None:
+    unvalidated = _create_test_record(
+        normalized_question="Consulta no validada.",
+        validated=False,
+        execution_status="not_executed",
+    )
+    valid = _create_test_record(
+        normalized_question="Consulta validada.",
+    )
+    far = _create_test_record(
+        normalized_question="Consulta lejana.",
+        filters=[
+            {"field": "state", "operator": "=", "value": "RJ"},
+        ],
+    )
+
+    collection = _FakeSearchCollection(
+        [
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(
+                        unvalidated,
+                    ),
+                    metadata=unvalidated.to_metadata(),
+                ),
+                0.10,
+            ),
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(valid),
+                    metadata=valid.to_metadata(),
+                ),
+                0.20,
+            ),
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(far),
+                    metadata=far.to_metadata(),
+                ),
+                0.90,
+            ),
+        ]
+    )
+
+    results = search_query_memory_v2(
+        collection,
+        query="consulta",
+        distance_threshold=0.70,
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["fingerprint"] == (
+        valid.fingerprint
+    )
+    assert results[0]["distance"] == 0.20
+
+
+def test_search_can_filter_by_intent_and_required_metrics() -> None:
+    ranking = _create_test_record(
+        normalized_question="Ranking de transportistas.",
+        intent="ranking",
+        metrics=["on_time_rate"],
+    )
+    aggregation = _create_test_record(
+        normalized_question="Ventas totales.",
+        intent="aggregation",
+        metrics=["revenue"],
+        filters=[
+            {"field": "state", "operator": "=", "value": "SP"},
+        ],
+    )
+
+    collection = _FakeSearchCollection(
+        [
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(ranking),
+                    metadata=ranking.to_metadata(),
+                ),
+                0.10,
+            ),
+            (
+                Document(
+                    page_content=build_query_memory_v2_document(
+                        aggregation,
+                    ),
+                    metadata=aggregation.to_metadata(),
+                ),
+                0.20,
+            ),
+        ]
+    )
+
+    results = search_query_memory_v2(
+        collection,
+        query="ventas",
+        distance_threshold=0.70,
+        intent="aggregation",
+        required_metrics=["revenue"],
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["intent"] == "aggregation"
+    assert results[0]["metadata"]["metrics"] == ["revenue"]

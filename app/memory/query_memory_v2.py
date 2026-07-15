@@ -11,9 +11,12 @@ import hashlib
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
+
+from langchain_chroma import Chroma
+from langchain_core.embeddings import Embeddings
 
 QUERY_MEMORY_V2_COLLECTION = "query_memory_v2"
 QUERY_MEMORY_V2_EMBEDDING_VERSION = "query-memory-v2-question-structure"
@@ -78,6 +81,7 @@ class QueryMemoryV2Record:
             "last_used_at": self.last_used_at,
             "model": self.model,
             "embedding_version": self.embedding_version,
+            "memory_id": self.memory_id,
         }
 
 
@@ -229,6 +233,236 @@ def parse_query_memory_v2_metadata(
         ),
     }
 
+
+
+def get_or_create_query_memory_v2_collection(
+    chroma_client: Any,
+    embeddings: Embeddings,
+) -> Chroma:
+    """Obtiene o crea la colección independiente de memoria V2."""
+    return Chroma(
+        client=chroma_client,
+        collection_name=QUERY_MEMORY_V2_COLLECTION,
+        embedding_function=embeddings,
+    )
+
+
+def upsert_query_memory_v2(
+    collection: Chroma,
+    record: QueryMemoryV2Record,
+    *,
+    now: datetime | None = None,
+) -> QueryMemoryV2Record:
+    """Guarda o actualiza una memoria usando su ID determinístico.
+
+    Si ya existe una memoria validada, una ejecución posterior no validada
+    no puede degradar ni reemplazar el SQL que ya fue ejecutado con éxito.
+    """
+    existing_result = collection._collection.get(
+        ids=[record.memory_id],
+        include=["metadatas"],
+    )
+    existing_ids = existing_result.get("ids") or []
+    existing_metadata: dict[str, Any] = {}
+
+    if existing_ids:
+        metadatas = existing_result.get("metadatas") or []
+        if metadatas:
+            existing_metadata = metadatas[0] or {}
+
+    current_timestamp = _as_utc_iso(now)
+
+    if existing_metadata:
+        existing_validated = _metadata_bool(
+            existing_metadata.get("validated"),
+        )
+        incoming_is_authoritative = record.validated or not existing_validated
+
+        merged_record = replace(
+            record,
+            sql=(
+                record.sql
+                if incoming_is_authoritative
+                else str(existing_metadata.get("sql") or "")
+            ),
+            sources=(
+                record.sources
+                if incoming_is_authoritative
+                else str(existing_metadata.get("sources") or "")
+            ),
+            status=(
+                record.status
+                if incoming_is_authoritative
+                else str(existing_metadata.get("status") or "success")
+            ),
+            validated=record.validated or existing_validated,
+            execution_status=(
+                record.execution_status
+                if incoming_is_authoritative
+                else str(
+                    existing_metadata.get("execution_status")
+                    or "success"
+                )
+            ),
+            usage_count=int(
+                existing_metadata.get("usage_count") or 1
+            ) + 1,
+            created_at=str(
+                existing_metadata.get("created_at")
+                or record.created_at
+            ),
+            updated_at=current_timestamp,
+            last_used_at=str(
+                existing_metadata.get("last_used_at") or ""
+            ),
+            model=(
+                record.model
+                if incoming_is_authoritative
+                else str(existing_metadata.get("model") or "")
+            ),
+        )
+    else:
+        merged_record = replace(
+            record,
+            created_at=record.created_at or current_timestamp,
+            updated_at=current_timestamp,
+        )
+
+    collection.add_texts(
+        texts=[build_query_memory_v2_document(merged_record)],
+        metadatas=[merged_record.to_metadata()],
+        ids=[merged_record.memory_id],
+    )
+
+    return merged_record
+
+
+def search_query_memory_v2(
+    collection: Chroma,
+    *,
+    query: str,
+    n_results: int = 3,
+    distance_threshold: float = 0.7,
+    validated_only: bool = True,
+    intent: str | None = None,
+    required_metrics: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Busca memorias similares aplicando controles de calidad.
+
+    Recupera más candidatos de los solicitados para después aplicar:
+    distancia máxima, validación, ejecución exitosa, intención, métricas
+    requeridas y deduplicación por fingerprint.
+    """
+    cleaned_query = _clean_text(query)
+
+    if not cleaned_query or n_results <= 0:
+        return []
+
+    total = collection._collection.count()
+
+    if total == 0:
+        return []
+
+    candidate_count = min(
+        total,
+        max(n_results * 5, n_results),
+    )
+    raw_results = collection.similarity_search_with_score(
+        cleaned_query,
+        k=candidate_count,
+    )
+
+    normalized_intent = (
+        _normalize_token(intent)
+        if intent is not None
+        else None
+    )
+    normalized_required_metrics = set(
+        _normalize_text_list(required_metrics or [])
+    )
+
+    best_by_fingerprint: dict[str, dict[str, Any]] = {}
+
+    for document, raw_distance in raw_results:
+        distance = float(raw_distance)
+
+        if distance > distance_threshold:
+            continue
+
+        metadata = parse_query_memory_v2_metadata(document.metadata)
+
+        if (
+            metadata.get("embedding_version")
+            != QUERY_MEMORY_V2_EMBEDDING_VERSION
+        ):
+            continue
+
+        if validated_only:
+            if not _metadata_bool(metadata.get("validated")):
+                continue
+
+            if metadata.get("execution_status") != "success":
+                continue
+
+        if (
+            normalized_intent is not None
+            and metadata.get("intent") != normalized_intent
+        ):
+            continue
+
+        memory_metrics = set(metadata.get("metrics") or [])
+
+        if (
+            normalized_required_metrics
+            and not normalized_required_metrics.issubset(
+                memory_metrics,
+            )
+        ):
+            continue
+
+        fingerprint = str(metadata.get("fingerprint") or "")
+
+        if not fingerprint:
+            continue
+
+        candidate = {
+            "document": document.page_content,
+            "metadata": metadata,
+            "distance": distance,
+        }
+        previous = best_by_fingerprint.get(fingerprint)
+
+        if (
+            previous is None
+            or distance < float(previous["distance"])
+        ):
+            best_by_fingerprint[fingerprint] = candidate
+
+    ranked_results = sorted(
+        best_by_fingerprint.values(),
+        key=lambda result: float(result["distance"]),
+    )
+
+    return ranked_results[:n_results]
+
+
+def _as_utc_iso(now: datetime | None = None) -> str:
+    current_time = now or datetime.now(timezone.utc)
+
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+
+    return current_time.astimezone(timezone.utc).isoformat()
+
+
+def _metadata_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+
+    return bool(value)
 
 def _normalize_filters(
     filters: list[dict[str, str]],
