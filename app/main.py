@@ -911,9 +911,17 @@ def memory_v2_stats() -> MemoryV2StatsResponse:
             status="not_initialized",
         )
 
-    stored = query_memory_v2_collection._collection.get(
-        include=["metadatas"],
-    )
+    try:
+        stored = query_memory_v2_collection._collection.get(
+            include=["metadatas"],
+        )
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            "No se pudieron consultar las estadísticas "
+            "de Query Memory V2.",
+        ) from exc
+
     metadatas = stored.get("metadatas") or []
 
     validated_count = 0
@@ -969,13 +977,19 @@ def memory_v2_search(
         max(request.n_results * 3, 10),
         100,
     )
-    candidates = (
-        query_memory_v2_collection
-        .similarity_search_with_score(
-            request.question,
-            k=candidate_count,
+    try:
+        candidates = (
+            query_memory_v2_collection
+            .similarity_search_with_score(
+                request.question,
+                k=candidate_count,
+            )
         )
-    )
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            "No se pudo consultar Query Memory V2.",
+        ) from exc
 
     results = []
 

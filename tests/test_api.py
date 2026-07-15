@@ -367,6 +367,191 @@ def test_memory_v2_search_returns_503_when_not_initialized(
     assert response.status_code == 503
 
 
+
+
+def test_memory_v2_stats_returns_503_when_chroma_fails(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    class FailingRawCollection:
+        def get(self, include=None):
+            _ = include
+            raise RuntimeError("Chroma unavailable")
+
+    collection = SimpleNamespace(
+        _collection=FailingRawCollection(),
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.get("/memory/v2/stats")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "No se pudieron consultar las estadísticas "
+        "de Query Memory V2."
+    )
+
+
+def test_memory_v2_search_returns_503_when_chroma_fails(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    class FailingSearchCollection:
+        def similarity_search_with_score(
+            self,
+            query: str,
+            k: int = 10,
+        ):
+            _ = query, k
+            raise RuntimeError("Chroma unavailable")
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        FailingSearchCollection(),
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={"question": "Ventas mensuales"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "No se pudo consultar Query Memory V2."
+    )
+
+
+def test_memory_v2_search_supports_legacy_metadata(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    metadata = _memory_v2_metadata(
+        memory_id="legacy-memory",
+        validated=True,
+        retrieval_count=0,
+    )
+    metadata.pop("group_by_json")
+    metadata.pop("retrieval_count")
+    metadata.pop("last_used_at")
+
+    collection = _MemoryV2InspectionCollection(
+        search_results=[
+            (
+                Document(
+                    page_content="Memoria antigua.",
+                    metadata=metadata,
+                ),
+                0.15,
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={
+            "question": "Ventas",
+            "validated": True,
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert len(body["results"]) == 1
+
+    result = body["results"][0]
+
+    assert result["memory_id"] == "legacy-memory"
+    assert result["group_by"] == []
+    assert result["retrieval_count"] == 0
+    assert result["last_used_at"] == ""
+
+
+def test_memory_v2_search_validated_filter_hides_provisional_sql(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    validated_metadata = _memory_v2_metadata(
+        memory_id="validated-memory",
+        validated=True,
+        retrieval_count=2,
+    )
+    validated_metadata["sql"] = (
+        "SELECT SUM(revenue) FROM sales;"
+    )
+
+    provisional_metadata = _memory_v2_metadata(
+        memory_id="provisional-memory",
+        validated=False,
+        retrieval_count=0,
+    )
+    provisional_metadata["sql"] = (
+        "SELECT unverified_column FROM sales;"
+    )
+
+    collection = _MemoryV2InspectionCollection(
+        search_results=[
+            (
+                Document(
+                    page_content="Provisional",
+                    metadata=provisional_metadata,
+                ),
+                0.05,
+            ),
+            (
+                Document(
+                    page_content="Validada",
+                    metadata=validated_metadata,
+                ),
+                0.10,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        collection,
+    )
+
+    response = client.post(
+        "/memory/v2/search",
+        json={
+            "question": "Ventas",
+            "validated": True,
+            "n_results": 10,
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert len(body["results"]) == 1
+    assert (
+        body["results"][0]["memory_id"]
+        == "validated-memory"
+    )
+    assert (
+        body["results"][0]["sql"]
+        == "SELECT SUM(revenue) FROM sales;"
+    )
+    assert "unverified_column" not in str(body)
+
+
 def test_query_optimize_returns_normalized_response() -> None:
     response = client.post(
         "/query/optimize",
