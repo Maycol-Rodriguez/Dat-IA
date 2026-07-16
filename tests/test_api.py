@@ -466,6 +466,7 @@ def test_memory_v2_search_supports_legacy_metadata(
         json={
             "question": "Ventas",
             "validated": True,
+            "distance_threshold": 0.20,
         },
     )
     body = response.json()
@@ -535,6 +536,7 @@ def test_memory_v2_search_validated_filter_hides_provisional_sql(
             "question": "Ventas",
             "validated": True,
             "n_results": 10,
+            "distance_threshold": 0.20,
         },
     )
     body = response.json()
@@ -1371,7 +1373,9 @@ def test_query_answer_uses_and_saves_query_memory_v2(
     assert body["status"] == "success"
     assert captured["search_collection"] is memory_collection
     assert captured["n_results"] == 2
-    assert captured["distance_threshold"] == 0.7
+    assert captured["distance_threshold"] == (
+        main_module.QUERY_MEMORY_V2_DISTANCE_THRESHOLD
+    )
     assert captured["memory_examples"] == [memory_example]
     assert captured["used_collection"] is memory_collection
     assert captured["used_results"] == [memory_example]

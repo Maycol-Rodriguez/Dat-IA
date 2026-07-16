@@ -22,6 +22,8 @@ QUERY_MEMORY_V2_COLLECTION = "query_memory_v2"
 QUERY_MEMORY_V2_EMBEDDING_VERSION = "query-memory-v2-question-structure"
 
 
+QUERY_MEMORY_V2_DISTANCE_THRESHOLD = 0.07
+
 @dataclass(frozen=True)
 class QueryMemoryV2Record:
     """Representa una consulta almacenada en la memoria V2."""
@@ -362,7 +364,7 @@ def search_query_memory_v2(
     *,
     query: str,
     n_results: int = 3,
-    distance_threshold: float = 0.7,
+    distance_threshold: float = QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
     validated_only: bool = True,
     intent: str | None = None,
     required_metrics: list[str] | None = None,
@@ -530,7 +532,7 @@ def search_query_memory_v2_for_record(
     record: QueryMemoryV2Record,
     *,
     n_results: int = 3,
-    distance_threshold: float = 0.7,
+    distance_threshold: float = QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """Busca memorias compatibles con toda la estructura de una consulta.
 
