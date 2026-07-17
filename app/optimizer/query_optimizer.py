@@ -224,9 +224,13 @@ def _optimized_query_from_payload(
         intent = fallback.intent
 
     # La operación participa en la compatibilidad de Query Memory.
-    # Se obtiene únicamente de reglas determinísticas para evitar
-    # que el LLM confunda operaciones opuestas.
-    operation = fallback.operation
+    # Se recalcula de forma determinística usando la intención final
+    # validada, para que una intención count nunca conserve sum o detail
+    # desde un fallback calculado antes de procesar la respuesta del LLM.
+    operation = _detect_operation(
+        _normalize_for_matching(original_question),
+        intent=intent,
+    )
 
     # Las métricas canónicas detectadas por reglas deben prevalecer
     # sobre etiquetas variables o incorrectas generadas por el LLM.
@@ -376,6 +380,11 @@ def _detect_operation(
     intent: str,
 ) -> str:
     """Detecta la operación de negocio de forma determinística."""
+    # Una consulta cuya intención canónica es contar siempre representa
+    # COUNT, aunque contenga expresiones como "número total".
+    if intent == "count":
+        return "count"
+
     has_average_reference = "promedio" in normalized_text
     has_proximity_reference = any(
         token in normalized_text
@@ -510,7 +519,16 @@ def _detect_intent(normalized_text: str) -> str:
     ):
         return "comparison"
 
-    if _contains_any(normalized_text, ["cuantos", "cuantas", "cantidad", "numero de"]):
+    if _contains_any(
+        normalized_text,
+        [
+            "cuantos",
+            "cuantas",
+            "cantidad",
+            "numero de",
+            "numero total de",
+        ],
+    ):
         return "count"
 
     if _contains_any(normalized_text, ["total", "promedio", "suma", "monto"]):

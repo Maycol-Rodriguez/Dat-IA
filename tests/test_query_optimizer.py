@@ -1,6 +1,10 @@
 import pytest
 
-from app.optimizer.query_optimizer import optimize_query, optimize_query_rule_based
+from app.optimizer.query_optimizer import (
+    _optimized_query_from_payload,
+    optimize_query,
+    optimize_query_rule_based,
+)
 
 
 class _BoundFakeOptimizerLlm:
@@ -420,3 +424,40 @@ def test_devoluciones_does_not_trigger_temporal_intent() -> None:
 
     assert result.intent == "count"
     assert result.operation == "count"
+
+
+def test_count_intent_takes_precedence_over_total_wording() -> None:
+    result = optimize_query_rule_based(
+        "\u00bfCu\u00e1l es el n\u00famero total de tickets de "
+        "atenci\u00f3n al cliente que tienen un estado abierto?"
+    )
+
+    assert result.intent == "count"
+    assert result.operation == "count"
+    assert result.metrics == ["ticket_count"]
+    assert len(result.filters) == 1
+    assert result.filters[0].field == "resolved"
+    assert result.filters[0].operator == "="
+    assert result.filters[0].value == "false"
+
+
+def test_payload_optimizer_recomputes_operation_from_final_intent() -> None:
+    result = _optimized_query_from_payload(
+        original_question="Tickets de soporte abiertos.",
+        payload={
+            "intent": "count",
+            "normalized_question": (
+                "Contar los tickets de soporte abiertos."
+            ),
+            "operation": "sum",
+        },
+    )
+
+    assert result.optimizer == "gemini"
+    assert result.intent == "count"
+    assert result.operation == "count"
+    assert result.metrics == ["ticket_count"]
+    assert len(result.filters) == 1
+    assert result.filters[0].field == "resolved"
+    assert result.filters[0].operator == "="
+    assert result.filters[0].value == "false"
