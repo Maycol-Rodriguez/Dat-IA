@@ -95,7 +95,10 @@ async def lifespan(app: FastAPI):
             temperature=0.0,
             max_tokens=600,
         ).with_structured_output(RAGResponse, method="function_calling")
-        print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+        print(
+            "[startup] Generador SQL inicializado con "
+            f"Cloudflare Workers AI: {CF_MODEL}"
+        )
     else:
         rag_llm = ChatGoogleGenerativeAI(
             model=MODEL,
@@ -103,7 +106,10 @@ async def lifespan(app: FastAPI):
             temperature=0.0,
             max_output_tokens=600,
         ).with_structured_output(RAGResponse)
-        print("[startup] LangChain ChatGoogleGenerativeAI (RAG) inicializado.")
+        print(
+            "[startup] Generador SQL inicializado con "
+            f"Google Gemini: {MODEL}"
+        )
 
     # Inicializar LLM del optimizer (LangChain, salida estructurada dentro de optimize_query)
     optimizer_llm = ChatGoogleGenerativeAI(
