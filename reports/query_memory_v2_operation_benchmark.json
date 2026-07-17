@@ -1,0 +1,1145 @@
+{
+  "generated_at": "2026-07-17T20:39:30.072943+00:00",
+  "scope": "post_optimizer_structured_retrieval",
+  "model": "gemini-embedding-2",
+  "bank_version": "2.0",
+  "memory_count": 8,
+  "case_count": 19,
+  "current_production_threshold": 0.08,
+  "recommended_threshold_for_this_bank": 0.08,
+  "semantic_calibration": {
+    "maximum_positive_distance": 0.07479363679885864,
+    "minimum_wrong_distance": null,
+    "semantic_margin": null,
+    "midpoint_threshold": null
+  },
+  "threshold_metrics": [
+    {
+      "threshold": 0.0,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 8,
+      "hits_at_3": 8,
+      "false_positives": 0,
+      "correct_candidates": 8,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.5333333333333333,
+      "recall_at_3": 0.5333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.01,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 8,
+      "hits_at_3": 8,
+      "false_positives": 0,
+      "correct_candidates": 8,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.5333333333333333,
+      "recall_at_3": 0.5333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.02,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 10,
+      "hits_at_3": 10,
+      "false_positives": 0,
+      "correct_candidates": 10,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.6666666666666666,
+      "recall_at_3": 0.6666666666666666,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.03,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 13,
+      "hits_at_3": 13,
+      "false_positives": 0,
+      "correct_candidates": 13,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.8666666666666667,
+      "recall_at_3": 0.8666666666666667,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.04,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 14,
+      "hits_at_3": 14,
+      "false_positives": 0,
+      "correct_candidates": 14,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.9333333333333333,
+      "recall_at_3": 0.9333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.05,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 14,
+      "hits_at_3": 14,
+      "false_positives": 0,
+      "correct_candidates": 14,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.9333333333333333,
+      "recall_at_3": 0.9333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.06,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 14,
+      "hits_at_3": 14,
+      "false_positives": 0,
+      "correct_candidates": 14,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.9333333333333333,
+      "recall_at_3": 0.9333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.07,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 14,
+      "hits_at_3": 14,
+      "false_positives": 0,
+      "correct_candidates": 14,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 0.9333333333333333,
+      "recall_at_3": 0.9333333333333333,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.08,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.09,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.1,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.12,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.15,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.2,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.3,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.5,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 1.0,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 2.0,
+      "positive_cases": 15,
+      "negative_cases": 4,
+      "hits_at_1": 15,
+      "hits_at_3": 15,
+      "false_positives": 0,
+      "correct_candidates": 15,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    }
+  ],
+  "cases": [
+    {
+      "id": "carrier_best_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Qué transportista tiene el mejor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de mayor a menor por tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_best",
+      "raw_candidates": [
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "validated": true,
+          "distance": 0.12518106400966644
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.7210061550140381
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.7453197240829468
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7729755640029907
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "carrier_best_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Muéstrame primero a las empresas de transporte más cumplidas.",
+      "normalized_question": "Ordenar transportistas desde la mayor hasta la menor tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_best",
+      "raw_candidates": [
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "validated": true,
+          "distance": 0.025245588272809982
+        },
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "validated": true,
+          "distance": 0.14578722417354584
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.7063693404197693
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.7249334454536438
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7570115327835083
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "distance": 0.025245588272809982
+        }
+      ]
+    },
+    {
+      "id": "carrier_worst_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Qué transportista tiene el peor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de menor a mayor por tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_worst",
+      "raw_candidates": [
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "validated": true,
+          "distance": 0.12518106400966644
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.7267460823059082
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.771306574344635
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.7879270315170288
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "carrier_worst_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Muéstrame primero a los transportistas menos cumplidos.",
+      "normalized_question": "Ordenar transportistas desde la menor hasta la mayor tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_worst",
+      "raw_candidates": [
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "validated": true,
+          "distance": 0.03080012835562229
+        },
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "validated": true,
+          "distance": 0.12789109349250793
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.716509997844696
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.7688026428222656
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.7734125852584839
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "distance": 0.03080012835562229
+        }
+      ]
+    },
+    {
+      "id": "sales_total_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál fue la facturación total mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular la suma mensual de ingresos por ventas en São Paulo durante 2018.",
+      "expected_memory": "sales_monthly_total_sp",
+      "raw_candidates": [
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.13056515157222748
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.4956062436103821
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.5399168729782104
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7058026194572449
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "sales_total_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Suma las ventas de cada mes en SP para 2018.",
+      "normalized_question": "Obtener el total de ingresos por ventas de cada mes en São Paulo durante 2018.",
+      "expected_memory": "sales_monthly_total_sp",
+      "raw_candidates": [
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.021089378744363785
+        },
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.1328521966934204
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.4806292951107025
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.5229814052581787
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.6760470867156982
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "distance": 0.021089378744363785
+        }
+      ]
+    },
+    {
+      "id": "sales_average_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál fue la facturación promedio mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular el promedio mensual de ingresos por ventas en São Paulo durante 2018.",
+      "expected_memory": "sales_monthly_average_sp",
+      "raw_candidates": [
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.13056515157222748
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.5405133366584778
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.5701464414596558
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7343229055404663
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "sales_average_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Promedia las ventas de cada mes en SP para 2018.",
+      "normalized_question": "Obtener el ingreso promedio por ventas de cada mes en São Paulo durante 2018.",
+      "expected_memory": "sales_monthly_average_sp",
+      "raw_candidates": [
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.029202979058027267
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.12503767013549805
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.5272566080093384
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.5516902804374695
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7501569390296936
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "distance": 0.029202979058027267
+        }
+      ]
+    },
+    {
+      "id": "support_open_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets abiertos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte abiertos o pendientes.",
+      "expected_memory": "support_open_monthly",
+      "raw_candidates": [
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.1920299530029297
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.22275029122829437
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.4252505302429199
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.5399168729782104
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "support_open_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Cantidad mensual de solicitudes que siguen pendientes.",
+      "normalized_question": "Contar por mes los tickets de soporte que permanecen abiertos o pendientes.",
+      "expected_memory": "support_open_monthly",
+      "raw_candidates": [
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.01855521835386753
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.20161370933055878
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.21245604753494263
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.4192006587982178
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.5549627542495728
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "distance": 0.01855521835386753
+        }
+      ]
+    },
+    {
+      "id": "support_resolved_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets resueltos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte resueltos.",
+      "expected_memory": "support_resolved_monthly",
+      "raw_candidates": [
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.1920299530029297
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.2059400975704193
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.36608290672302246
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.4956062436103821
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "support_resolved_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Cantidad mensual de solicitudes solucionadas.",
+      "normalized_question": "Contar por mes los tickets de soporte que fueron resueltos.",
+      "expected_memory": "support_resolved_monthly",
+      "raw_candidates": [
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.01910191774368286
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.19264042377471924
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.2063496857881546
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.36343109607696533
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.4957098066806793
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "distance": 0.01910191774368286
+        }
+      ]
+    },
+    {
+      "id": "carrier_near_average",
+      "category": "semantic_collision_negative",
+      "question": "¿Qué transportistas están más cerca del cumplimiento promedio?",
+      "normalized_question": "Listar transportistas por cercanía de su tasa de cumplimiento a la tasa promedio.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "carrier_best",
+          "memory_id": "query-memory-v2-4f705918e31a61c693efa9bb56d77a80",
+          "validated": true,
+          "distance": 0.22904816269874573
+        },
+        {
+          "key": "carrier_worst",
+          "memory_id": "query-memory-v2-09b678bf81cd049a5ebecc98dfddd594",
+          "validated": true,
+          "distance": 0.2735670506954193
+        },
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.7758076190948486
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.8207848072052002
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.8247151374816895
+        }
+      ],
+      "structured_candidates": []
+    },
+    {
+      "id": "sales_monthly_median",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuál fue la mediana mensual de ventas en São Paulo durante 2018?",
+      "normalized_question": "Calcular la mediana mensual de ingresos por ventas en São Paulo durante 2018.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "sales_monthly_average_sp",
+          "memory_id": "query-memory-v2-7fef35d20eb9de899414c60eb3d8f52b",
+          "validated": true,
+          "distance": 0.16561314463615417
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.18608242273330688
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.5743488073348999
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.6132932901382446
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.7601474523544312
+        }
+      ],
+      "structured_candidates": []
+    },
+    {
+      "id": "support_created_monthly",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuántos tickets fueron creados por mes?",
+      "normalized_question": "Contar mensualmente todos los tickets de soporte creados.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.1493666172027588
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.15063117444515228
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.35908085107803345
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.3704766631126404
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.5039023160934448
+        }
+      ],
+      "structured_candidates": []
+    },
+    {
+      "id": "support_unresolved_count_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets de soporte están sin resolver?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado de no resuelto.",
+      "expected_memory": "support_unresolved_count",
+      "raw_candidates": [
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.22275029122829437
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.24714142084121704
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.36608290672302246
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.743577241897583
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "support_unresolved_count_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál es el número total de tickets de atención al cliente que tienen un estado abierto?",
+      "normalized_question": "¿Cuál es el número total de tickets de atención al cliente que tienen un estado abierto?",
+      "expected_memory": "support_unresolved_count",
+      "raw_candidates": [
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.07479363679885864
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.22525568306446075
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.2505653500556946
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.3660888373851776
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.706681489944458
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "distance": 0.07479363679885864
+        }
+      ]
+    },
+    {
+      "id": "support_resolved_count_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets de soporte ya fueron resueltos?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado resuelto.",
+      "expected_memory": "support_resolved_count",
+      "raw_candidates": [
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.2059400975704193
+        },
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.24714142084121704
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.4252505302429199
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.7058026194572449
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "support_all_count_negative",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuántos tickets de soporte existen en total?",
+      "normalized_question": "Contar el número total de tickets de soporte.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "support_unresolved_count",
+          "memory_id": "query-memory-v2-0b1983e326838f17325e0786c355d32a",
+          "validated": true,
+          "distance": 0.18275612592697144
+        },
+        {
+          "key": "support_resolved_count",
+          "memory_id": "query-memory-v2-8bb0f4596b62c131bbeff366dc8edb9a",
+          "validated": true,
+          "distance": 0.20255495607852936
+        },
+        {
+          "key": "support_open_monthly",
+          "memory_id": "query-memory-v2-88eaf8a6745c5225f7a5b8ed913054db",
+          "validated": true,
+          "distance": 0.3256206512451172
+        },
+        {
+          "key": "support_resolved_monthly",
+          "memory_id": "query-memory-v2-69ee2f0311dc9d9570cba485e0111593",
+          "validated": true,
+          "distance": 0.3431703448295593
+        },
+        {
+          "key": "sales_monthly_total_sp",
+          "memory_id": "query-memory-v2-7a18f95434178e66b6f81a70f3bb080d",
+          "validated": true,
+          "distance": 0.6772918701171875
+        }
+      ],
+      "structured_candidates": []
+    }
+  ],
+  "notes": [
+    "Este benchmark no evalúa la calidad del optimizer.",
+    "Las búsquedas estructurales solo reutilizan memorias validadas.",
+    "No modifica el umbral productivo automáticamente."
+  ]
+}

@@ -6,6 +6,7 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from app.memory.query_memory_v2 import (
+    QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
     QUERY_MEMORY_V2_COLLECTION,
     QUERY_MEMORY_V2_EMBEDDING_VERSION,
     build_query_memory_v2_document,
@@ -23,7 +24,7 @@ from app.memory.query_memory_v2 import (
 def test_query_memory_v2_constants() -> None:
     assert QUERY_MEMORY_V2_COLLECTION == "query_memory_v2"
     assert QUERY_MEMORY_V2_EMBEDDING_VERSION == (
-        "query-memory-v2-question-structure"
+        "query-memory-v2-operation-structure"
     )
 
 
@@ -706,3 +707,134 @@ def test_query_memory_v2_persists_between_clients(
     assert stored["ids"] == [record.memory_id]
     assert stored["metadatas"][0]["validated"] is True
     assert stored["metadatas"][0]["retrieval_count"] == 0
+
+
+def test_fingerprint_changes_when_operation_changes() -> None:
+    common_arguments = {
+        "normalized_question": (
+            "Listar transportistas por tasa de cumplimiento."
+        ),
+        "intent": "ranking",
+        "metrics": ["on_time_rate"],
+        "filters": [],
+        "date_range": None,
+        "group_by": ["carrier"],
+    }
+
+    descending = build_query_memory_v2_fingerprint(
+        **common_arguments,
+        operation="rank_desc",
+    )
+    ascending = build_query_memory_v2_fingerprint(
+        **common_arguments,
+        operation="rank_asc",
+    )
+
+    assert descending != ascending
+
+
+def test_document_and_metadata_include_operation() -> None:
+    record = create_query_memory_v2_record(
+        original_question=(
+            "\u00bfQu\u00e9 transportista tiene mayor cumplimiento?"
+        ),
+        normalized_question=(
+            "Listar transportistas por mayor cumplimiento."
+        ),
+        intent="ranking",
+        operation="rank_desc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        sql="SELECT 1;",
+    )
+
+    document = build_query_memory_v2_document(record)
+    metadata = parse_query_memory_v2_metadata(
+        record.to_metadata()
+    )
+
+    assert "Operaci\u00f3n: rank_desc" in document
+    assert metadata["operation"] == "rank_desc"
+
+
+def test_structured_search_excludes_different_operation(
+    memory_v2_collection,
+) -> None:
+    descending = create_query_memory_v2_record(
+        original_question="Mayor cumplimiento",
+        normalized_question=(
+            "Listar transportistas por cumplimiento."
+        ),
+        intent="ranking",
+        operation="rank_desc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        sql="SELECT 'desc';",
+        validated=True,
+        execution_status="success",
+    )
+    ascending = create_query_memory_v2_record(
+        original_question="Menor cumplimiento",
+        normalized_question=(
+            "Listar transportistas por cumplimiento."
+        ),
+        intent="ranking",
+        operation="rank_asc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        sql="SELECT 'asc';",
+        validated=True,
+        execution_status="success",
+    )
+
+    upsert_query_memory_v2(
+        memory_v2_collection,
+        descending,
+    )
+    upsert_query_memory_v2(
+        memory_v2_collection,
+        ascending,
+    )
+
+    query_record = create_query_memory_v2_record(
+        original_question="Consulta descendente",
+        normalized_question=(
+            "Listar transportistas por cumplimiento."
+        ),
+        intent="ranking",
+        operation="rank_desc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        sql="",
+    )
+
+    results = search_query_memory_v2_for_record(
+        memory_v2_collection,
+        query_record,
+        n_results=10,
+        distance_threshold=0.001,
+    )
+
+    assert len(results) == 1
+    assert results[0]["distance"] <= 0.001
+    assert (
+        results[0]["metadata"]["operation"]
+        == "rank_desc"
+    )
+
+
+def test_query_memory_v2_production_threshold_matches_calibration(
+) -> None:
+    assert QUERY_MEMORY_V2_DISTANCE_THRESHOLD == 0.08

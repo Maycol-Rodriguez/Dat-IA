@@ -1,27 +1,35 @@
-﻿{
-  "version": "1.0",
-  "description": "Banco inicial offline para evaluar Query Memory V2.",
+{
+  "version": "2.0",
+  "description": "Banco general de Query Memory V2 con compatibilidad estructural por intención, operación, métricas, filtros, fechas, agrupaciones y contexto.",
   "memories": [
     {
       "key": "carrier_ranking",
       "original_question": "¿Qué transportista tiene mayor cumplimiento?",
       "normalized_question": "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega.",
       "intent": "ranking",
-      "metrics": ["on_time_rate"],
+      "metrics": [
+        "on_time_rate"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["logistica", "transportistas"],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
       "sql": "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
       "sources": "carriers",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "rank_desc"
     },
     {
       "key": "sales_sp_2018",
       "original_question": "¿Cuánto se vendió en SP durante 2018?",
       "normalized_question": "Calcular ventas totales en SP durante 2018.",
       "intent": "aggregation",
-      "metrics": ["revenue"],
+      "metrics": [
+        "revenue"
+      ],
       "filters": [
         {
           "field": "state",
@@ -33,18 +41,23 @@
         "start_date": "2018-01-01",
         "end_date": "2018-12-31"
       },
-      "context": ["ventas"],
+      "context": [
+        "ventas"
+      ],
       "sql": "SELECT SUM(payment_value) FROM orders WHERE state = 'SP';",
       "sources": "olist_orders_dataset",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "sum"
     },
     {
       "key": "sales_rj_2018",
       "original_question": "¿Cuánto se vendió en RJ durante 2018?",
       "normalized_question": "Calcular ventas totales en RJ durante 2018.",
       "intent": "aggregation",
-      "metrics": ["revenue"],
+      "metrics": [
+        "revenue"
+      ],
       "filters": [
         {
           "field": "state",
@@ -56,77 +69,103 @@
         "start_date": "2018-01-01",
         "end_date": "2018-12-31"
       },
-      "context": ["ventas"],
+      "context": [
+        "ventas"
+      ],
       "sql": "SELECT SUM(payment_value) FROM orders WHERE state = 'RJ';",
       "sources": "olist_orders_dataset",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "sum"
     },
     {
       "key": "orders_2017",
       "original_question": "¿Cuántos pedidos hubo en 2017?",
       "normalized_question": "Contar pedidos realizados durante 2017.",
       "intent": "count",
-      "metrics": ["order_count"],
+      "metrics": [
+        "order_count"
+      ],
       "filters": [],
       "date_range": {
         "start_date": "2017-01-01",
         "end_date": "2017-12-31"
       },
-      "context": ["ventas"],
+      "context": [
+        "ventas"
+      ],
       "sql": "SELECT COUNT(*) FROM olist_orders_dataset;",
       "sources": "olist_orders_dataset",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "count"
     },
     {
       "key": "inventory_reorder",
       "original_question": "¿Qué productos tienen poco stock?",
       "normalized_question": "Listar productos con stock por debajo del punto de reorden.",
       "intent": "detail",
-      "metrics": ["stock_qty", "reorder_point"],
+      "metrics": [
+        "stock_qty",
+        "reorder_point"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["inventario"],
+      "context": [
+        "inventario"
+      ],
       "sql": "SELECT * FROM warehouse_inventory WHERE stock_qty < reorder_point;",
       "sources": "warehouse_inventory",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "detail"
     },
     {
       "key": "returns_count",
       "original_question": "¿Cuántas devoluciones se registraron?",
       "normalized_question": "Contar las devoluciones registradas.",
       "intent": "count",
-      "metrics": ["returns_count"],
+      "metrics": [
+        "returns_count"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["devoluciones"],
+      "context": [
+        "devoluciones"
+      ],
       "sql": "SELECT COUNT(*) FROM product_returns;",
       "sources": "product_returns",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "count"
     },
     {
       "key": "reviews_average",
       "original_question": "¿Cuál es la calificación promedio?",
       "normalized_question": "Calcular la calificación promedio de las reseñas.",
       "intent": "aggregation",
-      "metrics": ["review_score"],
+      "metrics": [
+        "review_score"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["resenas"],
+      "context": [
+        "resenas"
+      ],
       "sql": "SELECT AVG(review_score) FROM olist_order_reviews_dataset;",
       "sources": "olist_order_reviews_dataset",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "average"
     },
     {
       "key": "support_unresolved",
       "original_question": "¿Qué tickets están sin resolver?",
       "normalized_question": "Listar tickets de soporte que todavía no fueron resueltos.",
       "intent": "detail",
-      "metrics": ["resolution_time_hr"],
+      "metrics": [
+        "resolution_time_hr"
+      ],
       "filters": [
         {
           "field": "resolved",
@@ -135,25 +174,33 @@
         }
       ],
       "date_range": null,
-      "context": ["soporte"],
+      "context": [
+        "soporte"
+      ],
       "sql": "SELECT * FROM customer_support_tickets WHERE resolved = false;",
       "sources": "customer_support_tickets",
       "validated": true,
-      "execution_status": "success"
+      "execution_status": "success",
+      "operation": "detail"
     },
     {
       "key": "price_unvalidated",
       "original_question": "¿Cuál es el precio promedio?",
       "normalized_question": "Calcular el precio promedio de los productos.",
       "intent": "aggregation",
-      "metrics": ["price"],
+      "metrics": [
+        "price"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["precios"],
+      "context": [
+        "precios"
+      ],
       "sql": "SELECT AVG(price) FROM product_price_history;",
       "sources": "product_price_history",
       "validated": false,
-      "execution_status": "not_executed"
+      "execution_status": "not_executed",
+      "operation": "average"
     }
   ],
   "cases": [
@@ -163,11 +210,17 @@
       "question": "¿Qué transportista tiene mayor cumplimiento?",
       "normalized_question": "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega.",
       "intent": "ranking",
-      "metrics": ["on_time_rate"],
+      "metrics": [
+        "on_time_rate"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["logistica", "transportistas"],
-      "expected_memory": "carrier_ranking"
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_ranking",
+      "operation": "rank_desc"
     },
     {
       "id": "paraphrase_carrier",
@@ -175,11 +228,17 @@
       "question": "¿Qué empresa de reparto es la más puntual?",
       "normalized_question": "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega.",
       "intent": "ranking",
-      "metrics": ["on_time_rate"],
+      "metrics": [
+        "on_time_rate"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["logistica", "transportistas"],
-      "expected_memory": "carrier_ranking"
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_ranking",
+      "operation": "rank_desc"
     },
     {
       "id": "sales_sp_2018",
@@ -187,7 +246,9 @@
       "question": "Total facturado en São Paulo en 2018",
       "normalized_question": "Calcular ventas totales en SP durante 2018.",
       "intent": "aggregation",
-      "metrics": ["revenue"],
+      "metrics": [
+        "revenue"
+      ],
       "filters": [
         {
           "field": "state",
@@ -199,8 +260,11 @@
         "start_date": "2018-01-01",
         "end_date": "2018-12-31"
       },
-      "context": ["ventas"],
-      "expected_memory": "sales_sp_2018"
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_sp_2018",
+      "operation": "sum"
     },
     {
       "id": "sales_rj_2018",
@@ -208,7 +272,9 @@
       "question": "Ingresos obtenidos en Río de Janeiro durante 2018",
       "normalized_question": "Calcular ventas totales en RJ durante 2018.",
       "intent": "aggregation",
-      "metrics": ["revenue"],
+      "metrics": [
+        "revenue"
+      ],
       "filters": [
         {
           "field": "state",
@@ -220,8 +286,11 @@
         "start_date": "2018-01-01",
         "end_date": "2018-12-31"
       },
-      "context": ["ventas"],
-      "expected_memory": "sales_rj_2018"
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_rj_2018",
+      "operation": "sum"
     },
     {
       "id": "orders_2017",
@@ -229,14 +298,19 @@
       "question": "Cantidad de compras realizadas en 2017",
       "normalized_question": "Contar pedidos realizados durante 2017.",
       "intent": "count",
-      "metrics": ["order_count"],
+      "metrics": [
+        "order_count"
+      ],
       "filters": [],
       "date_range": {
         "start_date": "2017-01-01",
         "end_date": "2017-12-31"
       },
-      "context": ["ventas"],
-      "expected_memory": "orders_2017"
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "orders_2017",
+      "operation": "count"
     },
     {
       "id": "inventory_paraphrase",
@@ -244,11 +318,17 @@
       "question": "Productos que deben ser reabastecidos",
       "normalized_question": "Listar productos con stock por debajo del punto de reorden.",
       "intent": "detail",
-      "metrics": ["stock_qty", "reorder_point"],
+      "metrics": [
+        "stock_qty",
+        "reorder_point"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["inventario"],
-      "expected_memory": "inventory_reorder"
+      "context": [
+        "inventario"
+      ],
+      "expected_memory": "inventory_reorder",
+      "operation": "detail"
     },
     {
       "id": "returns_paraphrase",
@@ -256,11 +336,16 @@
       "question": "Número de productos retornados",
       "normalized_question": "Contar las devoluciones registradas.",
       "intent": "count",
-      "metrics": ["returns_count"],
+      "metrics": [
+        "returns_count"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["devoluciones"],
-      "expected_memory": "returns_count"
+      "context": [
+        "devoluciones"
+      ],
+      "expected_memory": "returns_count",
+      "operation": "count"
     },
     {
       "id": "reviews_average",
@@ -268,11 +353,16 @@
       "question": "Promedio de puntuación de los clientes",
       "normalized_question": "Calcular la calificación promedio de las reseñas.",
       "intent": "aggregation",
-      "metrics": ["review_score"],
+      "metrics": [
+        "review_score"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["resenas"],
-      "expected_memory": "reviews_average"
+      "context": [
+        "resenas"
+      ],
+      "expected_memory": "reviews_average",
+      "operation": "average"
     },
     {
       "id": "support_unresolved",
@@ -280,7 +370,9 @@
       "question": "Casos de soporte pendientes",
       "normalized_question": "Listar tickets de soporte que todavía no fueron resueltos.",
       "intent": "detail",
-      "metrics": ["resolution_time_hr"],
+      "metrics": [
+        "resolution_time_hr"
+      ],
       "filters": [
         {
           "field": "resolved",
@@ -289,8 +381,11 @@
         }
       ],
       "date_range": null,
-      "context": ["soporte"],
-      "expected_memory": "support_unresolved"
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_unresolved",
+      "operation": "detail"
     },
     {
       "id": "wrong_year",
@@ -298,7 +393,9 @@
       "question": "Ventas de SP en 2017",
       "normalized_question": "Calcular ventas totales en SP durante 2017.",
       "intent": "aggregation",
-      "metrics": ["revenue"],
+      "metrics": [
+        "revenue"
+      ],
       "filters": [
         {
           "field": "state",
@@ -310,8 +407,11 @@
         "start_date": "2017-01-01",
         "end_date": "2017-12-31"
       },
-      "context": ["ventas"],
-      "expected_memory": null
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": null,
+      "operation": "sum"
     },
     {
       "id": "unvalidated_price",
@@ -319,11 +419,16 @@
       "question": "Precio promedio de los productos",
       "normalized_question": "Calcular el precio promedio de los productos.",
       "intent": "aggregation",
-      "metrics": ["price"],
+      "metrics": [
+        "price"
+      ],
       "filters": [],
       "date_range": null,
-      "context": ["precios"],
-      "expected_memory": null
+      "context": [
+        "precios"
+      ],
+      "expected_memory": null,
+      "operation": "average"
     },
     {
       "id": "out_of_domain",
@@ -335,7 +440,8 @@
       "filters": [],
       "date_range": null,
       "context": [],
-      "expected_memory": null
+      "expected_memory": null,
+      "operation": "detail"
     }
   ]
 }

@@ -19,10 +19,18 @@ from langchain_chroma import Chroma
 from langchain_core.embeddings import Embeddings
 
 QUERY_MEMORY_V2_COLLECTION = "query_memory_v2"
-QUERY_MEMORY_V2_EMBEDDING_VERSION = "query-memory-v2-question-structure"
+QUERY_MEMORY_V2_EMBEDDING_VERSION = "query-memory-v2-operation-structure"
 
 
-QUERY_MEMORY_V2_DISTANCE_THRESHOLD = 0.07
+# Recuperación productiva:
+# compara estructuras generadas por el optimizer.
+# Calibrado con el banco de colisiones semánticas v2.0
+# y gemini-embedding-2.
+QUERY_MEMORY_V2_DISTANCE_THRESHOLD = 0.08
+
+# Búsqueda administrativa:
+# compara una pregunta libre contra documentos estructurados.
+QUERY_MEMORY_V2_INSPECTION_DISTANCE_THRESHOLD = 0.70
 
 @dataclass(frozen=True)
 class QueryMemoryV2Record:
@@ -31,6 +39,7 @@ class QueryMemoryV2Record:
     original_question: str
     normalized_question: str
     intent: str
+    operation: str
     metrics: list[str]
     filters: list[dict[str, str]]
     date_range: dict[str, str] | None
@@ -65,6 +74,7 @@ class QueryMemoryV2Record:
             "original_question": self.original_question,
             "normalized_question": self.normalized_question,
             "intent": self.intent,
+            "operation": self.operation,
             "metrics_json": _canonical_json(self.metrics),
             "filters_json": _canonical_json(self.filters),
             "date_range_json": (
@@ -96,6 +106,7 @@ def create_query_memory_v2_record(
     original_question: str,
     normalized_question: str,
     intent: str,
+    operation: str = "detail",
     metrics: list[str] | None = None,
     filters: list[dict[str, str]] | None = None,
     date_range: dict[str, str] | None = None,
@@ -120,6 +131,7 @@ def create_query_memory_v2_record(
         raise ValueError("La pregunta normalizada no puede estar vacía.")
 
     normalized_intent = _normalize_token(intent) or "detail"
+    normalized_operation = _normalize_token(operation) or "detail"
     normalized_metrics = _normalize_text_list(metrics or [])
     normalized_filters = _normalize_filters(filters or [])
     normalized_date_range = _normalize_date_range(date_range)
@@ -129,6 +141,7 @@ def create_query_memory_v2_record(
     fingerprint = build_query_memory_v2_fingerprint(
         normalized_question=cleaned_normalized_question,
         intent=normalized_intent,
+        operation=normalized_operation,
         metrics=normalized_metrics,
         filters=normalized_filters,
         date_range=normalized_date_range,
@@ -146,6 +159,7 @@ def create_query_memory_v2_record(
         original_question=cleaned_original_question,
         normalized_question=cleaned_normalized_question,
         intent=normalized_intent,
+        operation=normalized_operation,
         metrics=normalized_metrics,
         filters=normalized_filters,
         date_range=normalized_date_range,
@@ -171,6 +185,7 @@ def build_query_memory_v2_fingerprint(
     normalized_question: str,
     intent: str,
     metrics: list[str],
+    operation: str = "detail",
     filters: list[dict[str, str]],
     date_range: dict[str, str] | None,
     group_by: list[str] | None = None,
@@ -181,6 +196,7 @@ def build_query_memory_v2_fingerprint(
             normalized_question
         ),
         "intent": _normalize_token(intent),
+        "operation": _normalize_token(operation) or "detail",
         "metrics": _normalize_text_list(metrics),
         "filters": _normalize_filters(filters),
         "date_range": _normalize_date_range(date_range),
@@ -215,6 +231,7 @@ def build_query_memory_v2_document(record: QueryMemoryV2Record) -> str:
         [
             f"Pregunta normalizada: {record.normalized_question}",
             f"Intención: {record.intent}",
+            f"Operación: {record.operation}",
             f"Métricas: {metrics_text}",
             f"Filtros: {filters_text}",
             f"Rango de fechas: {date_range_text}",
@@ -367,6 +384,7 @@ def search_query_memory_v2(
     distance_threshold: float = QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
     validated_only: bool = True,
     intent: str | None = None,
+    operation: str | None = None,
     required_metrics: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Busca memorias similares aplicando controles de calidad.
@@ -375,9 +393,12 @@ def search_query_memory_v2(
     distancia máxima, validación, ejecución exitosa, intención, métricas
     requeridas y deduplicación por fingerprint.
     """
-    cleaned_query = _clean_text(query)
+    # El documento de Query Memory contiene campos separados por
+    # saltos de línea. Debe consultarse con el mismo formato usado al
+    # indexarlo; normalizar todos los espacios cambia su embedding.
+    query_text = query.strip()
 
-    if not cleaned_query or n_results <= 0:
+    if not _clean_text(query_text) or n_results <= 0:
         return []
 
     total = collection._collection.count()
@@ -390,13 +411,18 @@ def search_query_memory_v2(
         max(n_results * 5, n_results),
     )
     raw_results = collection.similarity_search_with_score(
-        cleaned_query,
+        query_text,
         k=candidate_count,
     )
 
     normalized_intent = (
         _normalize_token(intent)
         if intent is not None
+        else None
+    )
+    normalized_operation = (
+        _normalize_token(operation)
+        if operation is not None
         else None
     )
     normalized_required_metrics = set(
@@ -429,6 +455,15 @@ def search_query_memory_v2(
         if (
             normalized_intent is not None
             and metadata.get("intent") != normalized_intent
+        ):
+            continue
+
+        if (
+            normalized_operation is not None
+            and _normalize_token(
+                str(metadata.get("operation") or "detail")
+            )
+            != normalized_operation
         ):
             continue
 
@@ -552,6 +587,7 @@ def search_query_memory_v2_for_record(
         distance_threshold=distance_threshold,
         validated_only=True,
         intent=record.intent,
+        operation=record.operation,
         required_metrics=record.metrics,
     )
 
@@ -560,6 +596,9 @@ def search_query_memory_v2_for_record(
     for candidate in candidates:
         metadata = candidate["metadata"]
 
+        memory_operation = _normalize_token(
+            str(metadata.get("operation") or "detail")
+        )
         memory_metrics = _normalize_text_list(
             metadata.get("metrics") or [],
         )
@@ -575,6 +614,9 @@ def search_query_memory_v2_for_record(
         memory_context = set(
             _normalize_text_list(metadata.get("context") or [])
         )
+
+        if memory_operation != record.operation:
+            continue
 
         if memory_metrics != record.metrics:
             continue
