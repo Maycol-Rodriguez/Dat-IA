@@ -1245,7 +1245,7 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
 
 
 
-def test_query_answer_uses_and_saves_query_memory_v2(
+def test_query_answer_marks_matching_memory_without_duplicate(
     monkeypatch,
 ) -> None:
     from app import main as main_module
@@ -1388,12 +1388,8 @@ def test_query_answer_uses_and_saves_query_memory_v2(
     assert search_record.intent == "ranking"
     assert "on_time_rate" in search_record.metrics
 
-    saved_record = captured["saved_record"]
-    assert captured["saved_collection"] is memory_collection
-    assert saved_record.validated is True
-    assert saved_record.execution_status == "success"
-    assert saved_record.status == "success"
-    assert saved_record.sql.startswith("SELECT carrier_name")
+    assert "saved_collection" not in captured
+    assert "saved_record" not in captured
 
 
 def test_query_answer_memory_v2_failure_does_not_break_flow(
@@ -1566,3 +1562,134 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
     assert response.status_code == 200
     assert body["status"] == "unknown"
     assert body["data"] == []
+
+
+def test_find_matching_query_memory_v2_result_normalizes_sql() -> None:
+    from app import main as main_module
+
+    memory = {
+        "metadata": {
+            "memory_id": "existing-memory",
+            "sql": (
+                " SELECT carrier_name\n"
+                " FROM carriers\n"
+                " ORDER BY on_time_rate DESC\n"
+                " LIMIT 1; "
+            ),
+        },
+        "distance": 0.05,
+    }
+
+    matching = (
+        main_module._find_matching_query_memory_v2_result(
+            [memory],
+            (
+                "select carrier_name from carriers "
+                "order by on_time_rate desc limit 1"
+            ),
+        )
+    )
+
+    assert matching is memory
+    assert (
+        main_module._find_matching_query_memory_v2_result(
+            [memory],
+            "SELECT COUNT(*) FROM carriers;",
+        )
+        is None
+    )
+
+
+def test_query_answer_saves_when_retrieved_sql_does_not_match(
+    monkeypatch,
+) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    memory_collection = object()
+    saved_records = []
+    marked_results = []
+
+    memory_example = {
+        "metadata": {
+            "memory_id": "different-memory",
+            "normalized_question": (
+                "Contar el número de transportistas."
+            ),
+            "sql": "SELECT COUNT(*) FROM carriers;",
+            "sources": "carriers",
+            "validated": True,
+            "execution_status": "success",
+        },
+        "distance": 0.05,
+    }
+
+    monkeypatch.setattr(
+        main_module,
+        "query_memory_v2_collection",
+        memory_collection,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "search_query_memory_v2_for_record",
+        lambda *args, **kwargs: [memory_example],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "mark_query_memory_v2_results_used",
+        lambda collection, results: marked_results.append(
+            (collection, results)
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "upsert_query_memory_v2",
+        lambda collection, record: saved_records.append(
+            (collection, record)
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {
+            "rows": [
+                {
+                    "carrier_name": "DHL",
+                    "on_time_rate": 0.97,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows: (
+            "El transportista con mejor cumplimiento es DHL."
+        ),
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={
+            "question": (
+                "Que empresa de transporte tiene "
+                "mejor cumplimiento?"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert marked_results == []
+    assert len(saved_records) == 1
+
+    saved_collection, saved_record = saved_records[0]
+
+    assert saved_collection is memory_collection
+    assert saved_record.validated is True
+    assert saved_record.execution_status == "success"
+    assert saved_record.status == "success"
+    assert saved_record.sql.startswith(
+        "SELECT carrier_name"
+    )

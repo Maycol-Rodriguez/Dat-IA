@@ -570,31 +570,47 @@ def _search_query_memory_v2_examples(
             execution_status="not_executed",
         )
 
-        results = search_query_memory_v2_for_record(
+        return search_query_memory_v2_for_record(
             query_memory_v2_collection,
             query_record,
             n_results=n_results,
             distance_threshold=distance_threshold,
         )
-
-        try:
-            mark_query_memory_v2_results_used(
-                query_memory_v2_collection,
-                results,
-            )
-        except Exception as exc:
-            print(
-                "[memory-v2] ADVERTENCIA: No se pudo registrar "
-                f"el uso de las memorias: {exc}"
-            )
-
-        return results
     except Exception as exc:
         print(
             "[memory-v2] ADVERTENCIA: No se pudieron recuperar "
             f"ejemplos: {exc}"
         )
         return []
+
+
+def _normalize_sql_for_memory_match(sql: str) -> str:
+    """Normaliza diferencias superficiales para comparar SQL."""
+    normalized = " ".join(str(sql or "").strip().split())
+    return normalized.rstrip(";").strip().casefold()
+
+
+def _find_matching_query_memory_v2_result(
+    results: list[dict] | None,
+    sql: str,
+) -> dict | None:
+    """Encuentra la memoria recuperada cuyo SQL fue usado realmente."""
+    normalized_sql = _normalize_sql_for_memory_match(sql)
+
+    if not normalized_sql:
+        return None
+
+    for result in results or []:
+        metadata = result.get("metadata") or {}
+        candidate_sql = str(metadata.get("sql") or "")
+
+        if (
+            _normalize_sql_for_memory_match(candidate_sql)
+            == normalized_sql
+        ):
+            return result
+
+    return None
 
 
 def _save_query_memory_v2(
@@ -1176,14 +1192,34 @@ async def query_answer(request: QueryRequest):
         rows,
     )
 
-    _save_query_memory_v2(
-        optimized_query,
-        sql=rag_response.sql,
-        sources=rag_response.sources,
-        status="success",
-        validated=True,
-        execution_status="success",
+    matching_memory = _find_matching_query_memory_v2_result(
+        memory_examples,
+        rag_response.sql,
     )
+
+    if (
+        matching_memory is not None
+        and query_memory_v2_collection is not None
+    ):
+        try:
+            mark_query_memory_v2_results_used(
+                query_memory_v2_collection,
+                [matching_memory],
+            )
+        except Exception as exc:
+            print(
+                "[memory-v2] ADVERTENCIA: No se pudo registrar "
+                f"el uso de la memoria: {exc}"
+            )
+    else:
+        _save_query_memory_v2(
+            optimized_query,
+            sql=rag_response.sql,
+            sources=rag_response.sources,
+            status="success",
+            validated=True,
+            execution_status="success",
+        )
 
     if query_memory_collection is not None:
         try:
