@@ -243,7 +243,7 @@ def test_memory_v2_search_returns_decoded_results(
                     page_content="Memoria de ventas.",
                     metadata=metadata,
                 ),
-                0.25,
+                0.56,
             )
         ],
     )
@@ -259,7 +259,6 @@ def test_memory_v2_search_returns_decoded_results(
         json={
             "question": "Ventas mensuales en SP durante 2018",
             "n_results": 5,
-            "distance_threshold": 0.7,
         },
     )
     body = response.json()
@@ -286,7 +285,7 @@ def test_memory_v2_search_returns_decoded_results(
     assert result["group_by"] == ["month"]
     assert result["validated"] is True
     assert result["retrieval_count"] == 4
-    assert result["distance"] == 0.25
+    assert result["distance"] == 0.56
 
 
 def test_memory_v2_search_filters_validation_status(

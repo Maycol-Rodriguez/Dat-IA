@@ -23,6 +23,7 @@ from app.memory.query_memory import (
 )
 from app.memory.query_memory_v2 import (
     QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
+    QUERY_MEMORY_V2_INSPECTION_DISTANCE_THRESHOLD,
     create_query_memory_v2_record,
     get_or_create_query_memory_v2_collection,
     mark_query_memory_v2_results_used,
@@ -318,7 +319,7 @@ class MemoryV2SearchRequest(BaseModel):
     question: str = Field(..., min_length=1)
     n_results: int = Field(default=10, ge=1, le=50)
     distance_threshold: float = Field(
-        default=QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
+        default=QUERY_MEMORY_V2_INSPECTION_DISTANCE_THRESHOLD,
         ge=0.0,
     )
     validated: bool | None = None
