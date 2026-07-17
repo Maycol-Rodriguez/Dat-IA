@@ -55,6 +55,7 @@ class OptimizedQuery:
     original_question: str
     normalized_question: str
     intent: str
+    operation: str
     metrics: list[str]
     filters: list[QueryFilter]
     date_range: dict[str, str] | None
@@ -68,6 +69,7 @@ class OptimizedQuery:
             "original_question": self.original_question,
             "normalized_question": self.normalized_question,
             "intent": self.intent,
+            "operation": self.operation,
             "metrics": self.metrics,
             "filters": [asdict(query_filter) for query_filter in self.filters],
             "date_range": self.date_range,
@@ -109,6 +111,10 @@ def optimize_query_rule_based(question: str) -> OptimizedQuery:
     normalized_text = _normalize_for_matching(cleaned_question)
 
     intent = _detect_intent(normalized_text)
+    operation = _detect_operation(
+        normalized_text,
+        intent=intent,
+    )
     metrics = _detect_metrics(normalized_text)
     filters = _detect_filters(cleaned_question, normalized_text)
     date_range = _detect_date_range(normalized_text)
@@ -130,6 +136,7 @@ def optimize_query_rule_based(question: str) -> OptimizedQuery:
         original_question=cleaned_question,
         normalized_question=normalized_question,
         intent=intent,
+        operation=operation,
         metrics=metrics,
         filters=filters,
         date_range=date_range,
@@ -182,8 +189,8 @@ Return only valid JSON with this structure:
 Use these metric names when applicable:
 revenue, order_count, on_time_rate, freight_value, review_score,
 stock_qty, reorder_point, returns_count, refund_amount,
-incidents_count, compensation_value, resolution_time_hr,
-satisfaction_score, price.
+incidents_count, compensation_value, ticket_count,
+resolution_time_hr, satisfaction_score, price.
 
 Use these table names when applicable:
 olist_orders_dataset, olist_order_items_dataset, olist_customers_dataset,
@@ -191,6 +198,13 @@ olist_products_dataset, olist_order_reviews_dataset, carriers,
 warehouse_inventory, product_returns, delivery_incidents,
 customer_support_tickets, product_price_history,
 product_category_name_translation.
+
+Important rules:
+- Add a filter only when the user states an explicit business constraint.
+- Never infer Brazilian state codes from common words or substrings.
+- If the question has no explicit filter, return an empty filters list.
+- Write context labels in Spanish and keep them short and stable.
+- Do not translate context labels to English.
 
 User question:
 {question}
@@ -209,14 +223,29 @@ def _optimized_query_from_payload(
     if intent not in ALLOWED_INTENTS:
         intent = fallback.intent
 
-    metrics = _ensure_text_list(payload.get("metrics")) or fallback.metrics
+    # La operación participa en la compatibilidad de Query Memory.
+    # Se obtiene únicamente de reglas determinísticas para evitar
+    # que el LLM confunda operaciones opuestas.
+    operation = fallback.operation
+
+    # Las métricas canónicas detectadas por reglas deben prevalecer
+    # sobre etiquetas variables o incorrectas generadas por el LLM.
+    metrics = fallback.metrics or _ensure_text_list(payload.get("metrics"))
     group_by = _ensure_text_list(payload.get("group_by")) or fallback.group_by
-    context = _ensure_text_list(payload.get("context")) or fallback.context
+
+    # Estos campos forman parte de la compatibilidad estructural de Query
+    # Memory. Cuando las reglas reconocen el dominio, sus valores canónicos
+    # son más estables que etiquetas libres generadas por el LLM.
+    context = fallback.context or _ensure_text_list(payload.get("context"))
     suggested_tables = (
-        _ensure_text_list(payload.get("suggested_tables"))
-        or fallback.suggested_tables
+        fallback.suggested_tables
+        or _ensure_text_list(payload.get("suggested_tables"))
     )
-    filters = _build_filters_from_payload(payload.get("filters")) or fallback.filters
+
+    # Un filtro incorrecto cambia el significado de la consulta y puede
+    # impedir una recuperación válida. Solo se conservan filtros detectados
+    # explícitamente por las reglas determinísticas.
+    filters = fallback.filters
     date_range = _build_date_range_from_payload(
         payload.get("date_range"),
         fallback.date_range,
@@ -233,6 +262,7 @@ def _optimized_query_from_payload(
         original_question=original_question,
         normalized_question=normalized_question,
         intent=intent,
+        operation=operation,
         metrics=_unique(metrics),
         filters=filters,
         date_range=date_range,
@@ -340,10 +370,126 @@ def _unique(values: list[str]) -> list[str]:
     return unique_values
 
 
-def _detect_intent(normalized_text: str) -> str:
+def _detect_operation(
+    normalized_text: str,
+    *,
+    intent: str,
+) -> str:
+    """Detecta la operación de negocio de forma determinística."""
+    has_average_reference = "promedio" in normalized_text
+    has_proximity_reference = any(
+        token in normalized_text
+        for token in (
+            "cerca",
+            "cercan",
+            "proxim",
+        )
+    )
+
+    if has_average_reference and has_proximity_reference:
+        return "rank_nearest_average"
+
+    if (
+        intent == "comparison"
+        or any(
+            token in normalized_text
+            for token in (
+                "comparar",
+                "comparacion",
+                "versus",
+                " vs ",
+            )
+        )
+    ):
+        return "compare"
+
+    if intent == "ranking" and _contains_any(
+        normalized_text,
+        [
+            "mayor",
+            "mejor",
+            "mas alto",
+            "mas alta",
+            "mas cumplido",
+            "mas cumplida",
+            "mas puntual",
+            "de mayor a menor",
+            "top",
+        ],
+    ):
+        return "rank_desc"
+
+    if intent == "ranking" and _contains_any(
+        normalized_text,
+        [
+            "menor",
+            "peor",
+            "mas bajo",
+            "mas baja",
+            "menos cumplido",
+            "menos cumplida",
+            "menos puntual",
+            "de menor a mayor",
+        ],
+    ):
+        return "rank_asc"
+
+    if "mediana" in normalized_text:
+        return "median"
+
     if _contains_any(
         normalized_text,
-        ["por mes", "mensual", "mes a mes", "evolucion", "tendencia"],
+        [
+            "promedio",
+            "media aritmetica",
+            "valor medio",
+            "average",
+        ],
+    ):
+        return "average"
+
+    if _contains_any(
+        normalized_text,
+        [
+            "cuantos",
+            "cuantas",
+            "cantidad",
+            "numero de",
+            "contar",
+            "conteo",
+        ],
+    ):
+        return "count"
+
+    if _contains_any(
+        normalized_text,
+        [
+            "total",
+            "suma",
+            "sumar",
+            "acumulado",
+        ],
+    ):
+        return "sum"
+
+    return "detail"
+
+
+def _detect_intent(normalized_text: str) -> str:
+    temporal_tokens = set(normalized_text.split())
+
+    if (
+        _contains_any(
+            normalized_text,
+            [
+                "por mes",
+                "mensual",
+                "mes a mes",
+                "tendencia",
+            ],
+        )
+        or "evolucion" in temporal_tokens
+        or "evoluciones" in temporal_tokens
     ):
         return "temporal_trend"
 
@@ -353,7 +499,15 @@ def _detect_intent(normalized_text: str) -> str:
     ):
         return "ranking"
 
-    if _contains_any(normalized_text, ["comparar", "comparacion", " versus ", " vs "]):
+    if any(
+        token in normalized_text
+        for token in (
+            "comparar",
+            "comparacion",
+            "versus",
+            " vs ",
+        )
+    ):
         return "comparison"
 
     if _contains_any(normalized_text, ["cuantos", "cuantas", "cantidad", "numero de"]):
@@ -395,8 +549,31 @@ def _detect_metrics(normalized_text: str) -> list[str]:
     if _contains_any(normalized_text, ["incidencia", "incidente", "compensacion"]):
         metrics.extend(["incidents_count", "compensation_value"])
 
-    if _contains_any(normalized_text, ["ticket", "soporte", "satisfaccion"]):
-        metrics.extend(["resolution_time_hr", "satisfaction_score"])
+    is_support_query = _contains_any(
+        normalized_text,
+        [
+            "ticket",
+            "soporte",
+            "atencion al cliente",
+            "reclamo",
+        ],
+    )
+
+    if is_support_query:
+        metrics.append("ticket_count")
+
+    if _contains_any(
+        normalized_text,
+        [
+            "tiempo de resolucion",
+            "tiempo de respuesta",
+            "demora en resolver",
+        ],
+    ):
+        metrics.append("resolution_time_hr")
+
+    if "satisfaccion" in normalized_text:
+        metrics.append("satisfaction_score")
 
     if _contains_any(normalized_text, ["precio", "price"]):
         metrics.append("price")
@@ -473,9 +650,42 @@ def _detect_filters(original_question: str, normalized_text: str) -> list[QueryF
         "TO",
     ]
 
+    # Algunos códigos de estado coinciden con palabras habituales:
+    # AL, ES y SE. No debemos convertir palabras españolas en filtros.
+    ambiguous_state_codes = {"AL", "ES", "SE"}
+
     for state_code in state_codes:
-        if re.search(rf"\b{state_code}\b", original_question.upper()):
-            filters.append(QueryFilter("state", "=", state_code))
+        explicit_state_reference = re.search(
+            (
+                rf"\b(?:"
+                rf"en\s+(?:el\s+)?estado(?:\s+de)?"
+                rf"|estado(?:\s+de)?"
+                rf"|uf"
+                rf"|en"
+                rf"|de"
+                rf"|para"
+                rf")\s+{state_code}\b"
+            ),
+            original_question,
+            flags=re.IGNORECASE,
+        )
+
+        standalone_uppercase_code = (
+            state_code not in ambiguous_state_codes
+            and re.search(
+                rf"\b{state_code}\b",
+                original_question,
+            )
+        )
+
+        if explicit_state_reference or standalone_uppercase_code:
+            filters.append(
+                QueryFilter(
+                    "state",
+                    "=",
+                    state_code,
+                )
+            )
 
     if "cancelad" in normalized_text:
         filters.append(QueryFilter("order_status", "=", "canceled"))
@@ -495,8 +705,50 @@ def _detect_filters(original_question: str, normalized_text: str) -> list[QueryF
     if "critica" in normalized_text or "critico" in normalized_text:
         filters.append(QueryFilter("priority", "=", "critica"))
 
-    if "sin resolver" in normalized_text or "no resuelto" in normalized_text:
-        filters.append(QueryFilter("resolved", "=", "false"))
+    is_support_query = _contains_any(
+        normalized_text,
+        [
+            "ticket",
+            "soporte",
+            "atencion al cliente",
+            "reclamo",
+        ],
+    )
+
+    unresolved_support_status = _contains_any(
+        normalized_text,
+        [
+            "sin resolver",
+            "no resuelt",
+            "abiert",
+            "pendient",
+        ],
+    )
+    resolved_support_status = _contains_any(
+        normalized_text,
+        [
+            "resuelt",
+            "cerrad",
+        ],
+    )
+
+    if is_support_query:
+        if unresolved_support_status:
+            filters.append(
+                QueryFilter(
+                    "resolved",
+                    "=",
+                    "false",
+                )
+            )
+        elif resolved_support_status:
+            filters.append(
+                QueryFilter(
+                    "resolved",
+                    "=",
+                    "true",
+                )
+            )
 
     return filters
 
@@ -541,7 +793,13 @@ def _detect_context_and_tables(
         context.append("incidencias")
         tables.append("delivery_incidents")
 
-    if "resolution_time_hr" in metrics or "satisfaction_score" in metrics:
+    support_metrics = {
+        "ticket_count",
+        "resolution_time_hr",
+        "satisfaction_score",
+    }
+
+    if support_metrics.intersection(metrics):
         context.append("soporte")
         tables.append("customer_support_tickets")
 
