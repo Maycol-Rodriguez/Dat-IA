@@ -130,6 +130,7 @@ def _memory_v2_metadata(
         "original_question": "Pregunta original",
         "normalized_question": "Pregunta normalizada",
         "intent": "aggregation",
+        "operation": "sum",
         "metrics_json": '["revenue"]',
         "filters_json": (
             '[{"field":"state","operator":"=","value":"SP"}]'
@@ -269,6 +270,7 @@ def test_memory_v2_search_returns_decoded_results(
     result = body["results"][0]
 
     assert result["memory_id"] == "validated-1"
+    assert result["operation"] == "sum"
     assert result["metrics"] == ["revenue"]
     assert result["filters"] == [
         {
@@ -566,6 +568,7 @@ def test_query_optimize_returns_normalized_response() -> None:
 
     assert response.status_code == 200
     assert body["intent"] == "ranking"
+    assert body["operation"] == "rank_desc"
     assert "on_time_rate" in body["metrics"]
     assert "carriers" in body["suggested_tables"]
     assert body["optimizer"] == "rule_based"

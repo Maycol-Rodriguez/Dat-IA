@@ -329,6 +329,7 @@ class MemoryV2SearchResult(BaseModel):
     original_question: str
     normalized_question: str
     intent: str
+    operation: str
     metrics: list[str]
     filters: list[dict[str, str]]
     date_range: dict[str, str] | None
@@ -361,6 +362,7 @@ class QueryOptimizeResponse(BaseModel):
     original_question: str
     normalized_question: str
     intent: str
+    operation: str
     metrics: list[str]
     filters: list[QueryOptimizeFilter]
     date_range: dict[str, str] | None
@@ -414,6 +416,7 @@ def _memory_v2_metadata_to_result(
             metadata.get("normalized_question") or ""
         ),
         intent=str(metadata.get("intent") or ""),
+        operation=str(metadata.get("operation") or "detail"),
         metrics=_parse_memory_v2_json(
             metadata,
             "metrics_json",
@@ -525,6 +528,7 @@ def _build_query_memory_v2_record(
         original_question=optimized_query.original_question,
         normalized_question=optimized_query.normalized_question,
         intent=optimized_query.intent,
+        operation=optimized_query.operation,
         metrics=optimized_query.metrics,
         filters=filters,
         date_range=optimized_query.date_range,
