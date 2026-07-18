@@ -512,6 +512,220 @@ def query_embeddings(collection, query: str, distance_threshold: float = 0.7) ->
     return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
 
 
+def _get_suggested_table_embeddings(
+    collection,
+    suggested_tables: list[str] | None,
+) -> EmbeddingsResponse:
+    """Recupera DDL por nombre exacto desde las tablas sugeridas."""
+    raw_collection = getattr(
+        collection,
+        "_collection",
+        None,
+    )
+    get_method = getattr(
+        raw_collection,
+        "get",
+        None,
+    )
+
+    if not callable(get_method):
+        return EmbeddingsResponse(
+            tabla=[],
+            descripcion=[],
+            distance=[],
+            ddl="",
+        )
+
+    tables = []
+    descriptions = []
+    distances = []
+    ddls = []
+    seen = set()
+
+    for table_name in suggested_tables or []:
+        normalized_name = str(
+            table_name or ""
+        ).strip()
+
+        if (
+            not normalized_name
+            or normalized_name in seen
+        ):
+            continue
+
+        try:
+            result = get_method(
+                where={
+                    "nombre": normalized_name,
+                },
+                include=[
+                    "documents",
+                    "metadatas",
+                ],
+            )
+        except Exception as exc:
+            print(
+                "[ddl] ADVERTENCIA: No se pudo "
+                "recuperar la tabla sugerida "
+                f"{normalized_name}: {exc}"
+            )
+            continue
+
+        ids = result.get("ids") or []
+        documents = (
+            result.get("documents") or []
+        )
+        metadatas = (
+            result.get("metadatas") or []
+        )
+
+        if not ids:
+            continue
+
+        for index, _ in enumerate(ids):
+            metadata = (
+                metadatas[index]
+                if index < len(metadatas)
+                else {}
+            ) or {}
+
+            table = str(
+                metadata.get(
+                    "nombre",
+                    normalized_name,
+                )
+            ).strip()
+            ddl = str(
+                metadata.get("ddl") or ""
+            ).strip()
+
+            if (
+                not table
+                or not ddl
+                or table in seen
+            ):
+                continue
+
+            description = (
+                str(documents[index] or "")
+                if index < len(documents)
+                else ""
+            )
+
+            tables.append(table)
+            descriptions.append(description)
+
+            # 0.0 representa coincidencia exacta
+            # por nombre, no distancia vectorial.
+            distances.append(0.0)
+            ddls.append(ddl)
+            seen.add(table)
+
+    return EmbeddingsResponse(
+        tabla=tables,
+        descripcion=descriptions,
+        distance=distances,
+        ddl="\n".join(ddls),
+    )
+
+
+def retrieve_ddl_context(
+    collection,
+    query: str,
+    suggested_tables: list[str] | None = None,
+    distance_threshold: float = 0.7,
+) -> EmbeddingsResponse:
+    """Combina tablas sugeridas exactas y recuperación semántica."""
+    exact = _get_suggested_table_embeddings(
+        collection,
+        suggested_tables,
+    )
+
+    semantic = query_embeddings(
+        collection,
+        query,
+        distance_threshold=distance_threshold,
+    )
+
+    raw_collection = getattr(
+        collection,
+        "_collection",
+        None,
+    )
+    can_lookup_by_name = callable(
+        getattr(
+            raw_collection,
+            "get",
+            None,
+        )
+    )
+
+    # Conserva compatibilidad con colecciones simuladas
+    # que solo implementan búsqueda semántica.
+    if not can_lookup_by_name:
+        return semantic
+
+    tables = list(exact.tabla)
+    descriptions = list(exact.descripcion)
+    distances = list(exact.distance)
+
+    ddls = []
+    seen = set(exact.tabla)
+
+    if exact.ddl:
+        ddls.append(exact.ddl)
+
+    for index, table in enumerate(
+        semantic.tabla
+    ):
+        if table in seen:
+            continue
+
+        recovered = (
+            _get_suggested_table_embeddings(
+                collection,
+                [table],
+            )
+        )
+
+        if not recovered.ddl:
+            continue
+
+        tables.append(table)
+
+        description = (
+            recovered.descripcion[0]
+            if recovered.descripcion
+            else (
+                semantic.descripcion[index]
+                if index < len(
+                    semantic.descripcion
+                )
+                else ""
+            )
+        )
+        descriptions.append(description)
+
+        distance = (
+            semantic.distance[index]
+            if index < len(
+                semantic.distance
+            )
+            else distance_threshold
+        )
+        distances.append(distance)
+
+        ddls.append(recovered.ddl)
+        seen.add(table)
+
+    return EmbeddingsResponse(
+        tabla=tables,
+        descripcion=descriptions,
+        distance=distances,
+        ddl="\n".join(ddls),
+    )
+
+
 def _build_query_memory_v2_record(
     optimized_query: OptimizedQuery,
     *,
@@ -1066,9 +1280,12 @@ async def query_json(request: QueryRequest):
 
     print(f"Query for generation: {query_for_generation}")
 
-    resp = query_embeddings(
+    resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
+        suggested_tables=(
+            optimized_query.suggested_tables
+        ),
         distance_threshold=0.7,
     )
 
@@ -1146,9 +1363,12 @@ async def query_answer(request: QueryRequest):
         ),
     )
 
-    resp = query_embeddings(
+    resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
+        suggested_tables=(
+            optimized_query.suggested_tables
+        ),
         distance_threshold=0.7,
     )
 

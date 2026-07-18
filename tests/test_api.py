@@ -750,6 +750,247 @@ def test_query_embeddings_returns_empty_when_nothing_passes_threshold() -> None:
     assert result.distance == []
 
 
+def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
+    from app import main as main_module
+
+    table_data = {
+        "olist_orders_dataset": (
+            "Órdenes y fechas de compra.",
+            "CREATE TABLE olist_orders_dataset (...);",
+        ),
+        "olist_order_items_dataset": (
+            "Ítems, precios e ingresos.",
+            "CREATE TABLE olist_order_items_dataset (...);",
+        ),
+    }
+
+    class FakeRawCollection:
+        def get(
+            self,
+            *,
+            where,
+            include,
+        ):
+            _ = include
+            table = where["nombre"]
+
+            if table not in table_data:
+                return {
+                    "ids": [],
+                    "documents": [],
+                    "metadatas": [],
+                }
+
+            description, ddl = table_data[
+                table
+            ]
+
+            return {
+                "ids": [f"id-{table}"],
+                "documents": [description],
+                "metadatas": [
+                    {
+                        "nombre": table,
+                        "ddl": ddl,
+                    }
+                ],
+            }
+
+    class FakeCollection:
+        def __init__(self) -> None:
+            self._collection = (
+                FakeRawCollection()
+            )
+
+        def similarity_search_with_score(
+            self,
+            query: str,
+            k: int = 10,
+        ):
+            _ = query, k
+
+            return [
+                (
+                    Document(
+                        page_content=(
+                            "Tabla no relacionada."
+                        ),
+                        metadata={
+                            "nombre": "otra_tabla",
+                            "ddl": (
+                                "CREATE TABLE "
+                                "otra_tabla (...);"
+                            ),
+                        },
+                    ),
+                    0.95,
+                )
+            ]
+
+    result = (
+        main_module.retrieve_ddl_context(
+            FakeCollection(),
+            (
+                "Calcula el promedio de "
+                "ingresos mensuales."
+            ),
+            suggested_tables=[
+                "olist_orders_dataset",
+                "olist_order_items_dataset",
+            ],
+            distance_threshold=0.7,
+        )
+    )
+
+    assert result.tabla == [
+        "olist_orders_dataset",
+        "olist_order_items_dataset",
+    ]
+    assert result.distance == [
+        0.0,
+        0.0,
+    ]
+    assert (
+        "CREATE TABLE olist_orders_dataset"
+        in result.ddl
+    )
+    assert (
+        "CREATE TABLE olist_order_items_dataset"
+        in result.ddl
+    )
+    assert "otra_tabla" not in result.tabla
+
+
+def test_retrieve_ddl_context_deduplicates_semantic_table() -> None:
+    from app import main as main_module
+
+    class FakeRawCollection:
+        def get(
+            self,
+            *,
+            where,
+            include,
+        ):
+            _ = include
+
+            table = where["nombre"]
+
+            if table == "carriers":
+                return {
+                    "ids": ["carrier-id"],
+                    "documents": [
+                        "Transportistas."
+                    ],
+                    "metadatas": [
+                        {
+                            "nombre": "carriers",
+                            "ddl": (
+                                "CREATE TABLE "
+                                "carriers (...);"
+                            ),
+                        }
+                    ],
+                }
+
+            if table == "deliveries":
+                return {
+                    "ids": ["delivery-id"],
+                    "documents": [
+                        "Entregas."
+                    ],
+                    "metadatas": [
+                        {
+                            "nombre": "deliveries",
+                            "ddl": (
+                                "CREATE TABLE "
+                                "deliveries (...);"
+                            ),
+                        }
+                    ],
+                }
+
+            return {
+                "ids": [],
+                "documents": [],
+                "metadatas": [],
+            }
+
+    class FakeCollection:
+        def __init__(self) -> None:
+            self._collection = (
+                FakeRawCollection()
+            )
+
+        def similarity_search_with_score(
+            self,
+            query: str,
+            k: int = 10,
+        ):
+            _ = query, k
+
+            return [
+                (
+                    Document(
+                        page_content=(
+                            "Transportistas."
+                        ),
+                        metadata={
+                            "nombre": "carriers",
+                            "ddl": (
+                                "CREATE TABLE "
+                                "carriers (...);"
+                            ),
+                        },
+                    ),
+                    0.2,
+                ),
+                (
+                    Document(
+                        page_content=(
+                            "Entregas."
+                        ),
+                        metadata={
+                            "nombre": "deliveries",
+                            "ddl": (
+                                "CREATE TABLE "
+                                "deliveries (...);"
+                            ),
+                        },
+                    ),
+                    0.3,
+                ),
+            ]
+
+    result = (
+        main_module.retrieve_ddl_context(
+            FakeCollection(),
+            "Mejor transportista",
+            suggested_tables=[
+                "carriers",
+            ],
+            distance_threshold=0.7,
+        )
+    )
+
+    assert result.tabla == [
+        "carriers",
+        "deliveries",
+    ]
+    assert result.tabla.count(
+        "carriers"
+    ) == 1
+    assert result.distance == [
+        0.0,
+        0.3,
+    ]
+    assert result.ddl.count(
+        "CREATE TABLE carriers"
+    ) == 1
+    assert result.ddl.count(
+        "CREATE TABLE deliveries"
+    ) == 1
+
+
 def test_query_json_uses_optimized_question(monkeypatch) -> None:
     from app import main as main_module
 
