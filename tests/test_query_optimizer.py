@@ -448,6 +448,25 @@ def test_optimizer_uses_deterministic_operation_with_llm() -> None:
     assert result.operation == "rank_asc"
 
 
+def test_rule_based_optimizer_distinguishes_explicit_ranking_direction() -> None:
+    descending = optimize_query_rule_based(
+        "Lista los transportistas de mayor a menor cumplimiento."
+    )
+    ascending = optimize_query_rule_based(
+        "Lista los transportistas de menor a mayor cumplimiento."
+    )
+
+    assert descending.intent == "ranking"
+    assert descending.operation == "rank_desc"
+
+    assert ascending.intent == "ranking"
+    assert ascending.operation == "rank_asc"
+
+    assert descending.metrics == ascending.metrics
+    assert descending.context == ascending.context
+    assert descending.suggested_tables == ascending.suggested_tables
+
+
 def test_rule_based_optimizer_detects_comparison_intent() -> None:
     result = optimize_query_rule_based(
         "Comparar ventas versus devoluciones."

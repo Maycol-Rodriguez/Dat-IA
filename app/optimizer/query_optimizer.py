@@ -418,36 +418,57 @@ def _detect_operation(
     ):
         return "compare"
 
-    if intent == "ranking" and _contains_any(
-        normalized_text,
-        [
-            "mayor",
-            "mejor",
-            "mas alto",
-            "mas alta",
-            "mas cumplido",
-            "mas cumplida",
-            "mas puntual",
-            "de mayor a menor",
-            "top",
-        ],
-    ):
-        return "rank_desc"
+    if intent == "ranking":
+        # Las expresiones direccionales completas tienen prioridad sobre
+        # palabras aisladas. "De menor a mayor" contiene "mayor" y
+        # "de mayor a menor" contiene "menor", por lo que evaluarlas
+        # después produciría colisiones entre rank_asc y rank_desc.
+        if _contains_any(
+            normalized_text,
+            [
+                "de mayor a menor",
+                "descendente",
+            ],
+        ):
+            return "rank_desc"
 
-    if intent == "ranking" and _contains_any(
-        normalized_text,
-        [
-            "menor",
-            "peor",
-            "mas bajo",
-            "mas baja",
-            "menos cumplido",
-            "menos cumplida",
-            "menos puntual",
-            "de menor a mayor",
-        ],
-    ):
-        return "rank_asc"
+        if _contains_any(
+            normalized_text,
+            [
+                "de menor a mayor",
+                "ascendente",
+            ],
+        ):
+            return "rank_asc"
+
+        if _contains_any(
+            normalized_text,
+            [
+                "mayor",
+                "mejor",
+                "mas alto",
+                "mas alta",
+                "mas cumplido",
+                "mas cumplida",
+                "mas puntual",
+                "top",
+            ],
+        ):
+            return "rank_desc"
+
+        if _contains_any(
+            normalized_text,
+            [
+                "menor",
+                "peor",
+                "mas bajo",
+                "mas baja",
+                "menos cumplido",
+                "menos cumplida",
+                "menos puntual",
+            ],
+        ):
+            return "rank_asc"
 
     if "mediana" in normalized_text:
         return "median"
