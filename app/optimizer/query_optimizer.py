@@ -223,10 +223,16 @@ def _optimized_query_from_payload(
     if intent not in ALLOWED_INTENTS:
         intent = fallback.intent
 
+    # Las consultas explícitamente temporales detectadas por las reglas
+    # deben conservar una intención estable aunque el LLM las clasifique
+    # como una agregación genérica. Esto evita que paráfrasis equivalentes
+    # como suma mensual y promedio mensual cambien de intent.
+    if fallback.intent == "temporal_trend":
+        intent = "temporal_trend"
+
     # La operación participa en la compatibilidad de Query Memory.
     # Se recalcula de forma determinística usando la intención final
-    # validada, para que una intención count nunca conserve sum o detail
-    # desde un fallback calculado antes de procesar la respuesta del LLM.
+    # validada y canonicalizada.
     operation = _detect_operation(
         _normalize_for_matching(original_question),
         intent=intent,

@@ -123,6 +123,46 @@ def test_optimizer_uses_llm_when_available() -> None:
     assert result.group_by == ["state"]
 
 
+def test_llm_optimizer_preserves_temporal_intent_for_monthly_average() -> None:
+    payload = {
+        "normalized_question": (
+            "Calcula el promedio de ingresos "
+            "mensuales durante el año 2018."
+        ),
+        "intent": "aggregation",
+        "metrics": ["revenue"],
+        "filters": [],
+        "date_range": {
+            "start_date": "2018-01-01",
+            "end_date": "2018-12-31",
+        },
+        "group_by": ["month"],
+        "context": ["ventas"],
+        "suggested_tables": [
+            "olist_orders_dataset",
+            "olist_order_items_dataset",
+        ],
+    }
+
+    result = optimize_query(
+        (
+            "¿Cuál fue el promedio vendido "
+            "por mes en 2018?"
+        ),
+        llm=FakeOptimizerLlm(payload),
+    )
+
+    assert result.optimizer == "gemini"
+    assert result.intent == "temporal_trend"
+    assert result.operation == "average"
+    assert result.metrics == ["revenue"]
+    assert result.group_by == ["month"]
+    assert result.date_range == {
+        "start_date": "2018-01-01",
+        "end_date": "2018-12-31",
+    }
+
+
 def test_optimizer_falls_back_to_rules_when_llm_fails() -> None:
     result = optimize_query(
         "Que transportista tiene la mayor tasa de cumplimiento?",
