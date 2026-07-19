@@ -1,0 +1,688 @@
+{
+  "version": "2.0",
+  "description": "Banco de colisiones semánticas para Query Memory V2. Evalúa operaciones opuestas y filtros estructurales con embeddings reales.",
+  "memories": [
+    {
+      "key": "carrier_best",
+      "original_question": "¿Qué transportista tiene el mejor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de mayor a menor por tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "sql": "SELECT carrier_name, on_time_rate FROM carriers ORDER BY on_time_rate DESC;",
+      "sources": "carriers",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "rank_desc"
+    },
+    {
+      "key": "carrier_worst",
+      "original_question": "¿Qué transportista tiene el peor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de menor a mayor por tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "sql": "SELECT carrier_name, on_time_rate FROM carriers ORDER BY on_time_rate ASC;",
+      "sources": "carriers",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "rank_asc"
+    },
+    {
+      "key": "sales_monthly_total_sp",
+      "original_question": "¿Cuál fue la facturación total mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular la suma mensual de ingresos por ventas en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "sql": "SELECT DATE_TRUNC('month', sale_date) AS month, SUM(revenue) AS total_revenue FROM sales WHERE state = 'SP' AND sale_date >= '2018-01-01' AND sale_date < '2019-01-01' GROUP BY 1 ORDER BY 1;",
+      "sources": "sales",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "sum"
+    },
+    {
+      "key": "sales_monthly_average_sp",
+      "original_question": "¿Cuál fue la facturación promedio mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular el promedio mensual de ingresos por ventas en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "sql": "SELECT DATE_TRUNC('month', sale_date) AS month, AVG(revenue) AS average_revenue FROM sales WHERE state = 'SP' AND sale_date >= '2018-01-01' AND sale_date < '2019-01-01' GROUP BY 1 ORDER BY 1;",
+      "sources": "sales",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "average"
+    },
+    {
+      "key": "support_open_monthly",
+      "original_question": "¿Cuántos tickets abiertos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte abiertos o pendientes.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "sql": "SELECT DATE_TRUNC('month', created_at) AS month, COUNT(*) AS ticket_count FROM support_tickets WHERE status IN ('open', 'pending') GROUP BY 1 ORDER BY 1;",
+      "sources": "support_tickets",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "count"
+    },
+    {
+      "key": "support_resolved_monthly",
+      "original_question": "¿Cuántos tickets resueltos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte resueltos.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "true"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "sql": "SELECT DATE_TRUNC('month', resolved_at) AS month, COUNT(*) AS ticket_count FROM support_tickets WHERE status = 'resolved' GROUP BY 1 ORDER BY 1;",
+      "sources": "support_tickets",
+      "validated": true,
+      "execution_status": "success",
+      "operation": "count"
+    },
+    {
+      "key": "support_unresolved_count",
+      "original_question": "¿Cuántos tickets de soporte están sin resolver?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado de no resuelto.",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "sql": "SELECT COUNT(*) AS total_unresolved_tickets FROM customer_support_tickets WHERE resolved = FALSE;",
+      "sources": "customer_support_tickets",
+      "validated": true,
+      "execution_status": "success"
+    },
+    {
+      "key": "support_resolved_count",
+      "original_question": "¿Cuántos tickets de soporte ya fueron resueltos?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado resuelto.",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "true"
+        }
+      ],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "sql": "SELECT COUNT(*) AS total_resolved_tickets FROM customer_support_tickets WHERE resolved = TRUE;",
+      "sources": "customer_support_tickets",
+      "validated": true,
+      "execution_status": "success"
+    }
+  ],
+  "cases": [
+    {
+      "id": "carrier_best_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Qué transportista tiene el mejor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de mayor a menor por tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_best",
+      "operation": "rank_desc"
+    },
+    {
+      "id": "carrier_best_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Muéstrame primero a las empresas de transporte más cumplidas.",
+      "normalized_question": "Ordenar transportistas desde la mayor hasta la menor tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_best",
+      "operation": "rank_desc"
+    },
+    {
+      "id": "carrier_worst_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Qué transportista tiene el peor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados de menor a mayor por tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_worst",
+      "operation": "rank_asc"
+    },
+    {
+      "id": "carrier_worst_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Muéstrame primero a los transportistas menos cumplidos.",
+      "normalized_question": "Ordenar transportistas desde la menor hasta la mayor tasa de cumplimiento de entrega.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": "carrier_worst",
+      "operation": "rank_asc"
+    },
+    {
+      "id": "sales_total_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál fue la facturación total mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular la suma mensual de ingresos por ventas en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_monthly_total_sp",
+      "operation": "sum"
+    },
+    {
+      "id": "sales_total_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Suma las ventas de cada mes en SP para 2018.",
+      "normalized_question": "Obtener el total de ingresos por ventas de cada mes en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_monthly_total_sp",
+      "operation": "sum"
+    },
+    {
+      "id": "sales_average_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál fue la facturación promedio mensual en São Paulo durante 2018?",
+      "normalized_question": "Calcular el promedio mensual de ingresos por ventas en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_monthly_average_sp",
+      "operation": "average"
+    },
+    {
+      "id": "sales_average_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Promedia las ventas de cada mes en SP para 2018.",
+      "normalized_question": "Obtener el ingreso promedio por ventas de cada mes en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": "sales_monthly_average_sp",
+      "operation": "average"
+    },
+    {
+      "id": "support_open_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets abiertos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte abiertos o pendientes.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_open_monthly",
+      "operation": "count"
+    },
+    {
+      "id": "support_open_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Cantidad mensual de solicitudes que siguen pendientes.",
+      "normalized_question": "Contar por mes los tickets de soporte que permanecen abiertos o pendientes.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_open_monthly",
+      "operation": "count"
+    },
+    {
+      "id": "support_resolved_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets resueltos hubo por mes?",
+      "normalized_question": "Contar mensualmente los tickets de soporte resueltos.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "true"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_resolved_monthly",
+      "operation": "count"
+    },
+    {
+      "id": "support_resolved_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "Cantidad mensual de solicitudes solucionadas.",
+      "normalized_question": "Contar por mes los tickets de soporte que fueron resueltos.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "true"
+        }
+      ],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_resolved_monthly",
+      "operation": "count"
+    },
+    {
+      "id": "carrier_near_average",
+      "category": "semantic_collision_negative",
+      "question": "¿Qué transportistas están más cerca del cumplimiento promedio?",
+      "normalized_question": "Listar transportistas por cercanía de su tasa de cumplimiento a la tasa promedio.",
+      "intent": "ranking",
+      "metrics": [
+        "on_time_rate"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "carrier"
+      ],
+      "context": [
+        "logistica",
+        "transportistas"
+      ],
+      "expected_memory": null,
+      "operation": "rank_nearest_average"
+    },
+    {
+      "id": "sales_monthly_median",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuál fue la mediana mensual de ventas en São Paulo durante 2018?",
+      "normalized_question": "Calcular la mediana mensual de ingresos por ventas en São Paulo durante 2018.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "revenue"
+      ],
+      "filters": [
+        {
+          "field": "state",
+          "operator": "=",
+          "value": "SP"
+        }
+      ],
+      "date_range": {
+        "start": "2018-01-01",
+        "end": "2018-12-31"
+      },
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "ventas"
+      ],
+      "expected_memory": null,
+      "operation": "median"
+    },
+    {
+      "id": "support_created_monthly",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuántos tickets fueron creados por mes?",
+      "normalized_question": "Contar mensualmente todos los tickets de soporte creados.",
+      "intent": "temporal_trend",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [
+        "month"
+      ],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": null,
+      "operation": "count"
+    },
+    {
+      "id": "support_unresolved_count_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets de soporte están sin resolver?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado de no resuelto.",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_unresolved_count"
+    },
+    {
+      "id": "support_unresolved_count_paraphrase",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuál es el número total de tickets de atención al cliente que tienen un estado abierto?",
+      "normalized_question": "¿Cuál es el número total de tickets de atención al cliente que tienen un estado abierto?",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "false"
+        }
+      ],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_unresolved_count"
+    },
+    {
+      "id": "support_resolved_count_exact",
+      "category": "semantic_collision_positive",
+      "question": "¿Cuántos tickets de soporte ya fueron resueltos?",
+      "normalized_question": "Contar el número total de tickets de soporte que tienen un estado resuelto.",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [
+        {
+          "field": "resolved",
+          "operator": "=",
+          "value": "true"
+        }
+      ],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": "support_resolved_count"
+    },
+    {
+      "id": "support_all_count_negative",
+      "category": "semantic_collision_negative",
+      "question": "¿Cuántos tickets de soporte existen en total?",
+      "normalized_question": "Contar el número total de tickets de soporte.",
+      "intent": "count",
+      "operation": "count",
+      "metrics": [
+        "ticket_count"
+      ],
+      "filters": [],
+      "date_range": null,
+      "group_by": [],
+      "context": [
+        "soporte"
+      ],
+      "expected_memory": null
+    }
+  ]
+}

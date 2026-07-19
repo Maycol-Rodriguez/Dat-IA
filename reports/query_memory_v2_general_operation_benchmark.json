@@ -1,0 +1,829 @@
+{
+  "generated_at": "2026-07-17T20:40:35.935055+00:00",
+  "scope": "post_optimizer_structured_retrieval",
+  "model": "gemini-embedding-2",
+  "bank_version": "2.0",
+  "memory_count": 9,
+  "case_count": 12,
+  "current_production_threshold": 0.08,
+  "recommended_threshold_for_this_bank": 0.0,
+  "semantic_calibration": {
+    "maximum_positive_distance": 0.0,
+    "minimum_wrong_distance": null,
+    "semantic_margin": null,
+    "midpoint_threshold": null
+  },
+  "threshold_metrics": [
+    {
+      "threshold": 0.0,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.01,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.02,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.03,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.04,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.05,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.06,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.07,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.08,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.09,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.1,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.12,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.15,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.2,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.3,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 0.5,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 1.0,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    },
+    {
+      "threshold": 2.0,
+      "positive_cases": 9,
+      "negative_cases": 3,
+      "hits_at_1": 9,
+      "hits_at_3": 9,
+      "false_positives": 0,
+      "correct_candidates": 9,
+      "wrong_candidates": 0,
+      "cases_with_wrong_candidates": 0,
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "candidate_precision": 1.0,
+      "false_positive_rate": 0.0
+    }
+  ],
+  "cases": [
+    {
+      "id": "exact_carrier",
+      "category": "exact_match",
+      "question": "¿Qué transportista tiene mayor cumplimiento?",
+      "normalized_question": "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_ranking",
+      "raw_candidates": [
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.6802688241004944
+        },
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "validated": true,
+          "distance": 0.698702335357666
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.7030702829360962
+        },
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.735622763633728
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "paraphrase_carrier",
+      "category": "paraphrase",
+      "question": "¿Qué empresa de reparto es la más puntual?",
+      "normalized_question": "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega.",
+      "expected_memory": "carrier_ranking",
+      "raw_candidates": [
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.6802688241004944
+        },
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "validated": true,
+          "distance": 0.698702335357666
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.7030702829360962
+        },
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.735622763633728
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "sales_sp_2018",
+      "category": "filter",
+      "question": "Total facturado en São Paulo en 2018",
+      "normalized_question": "Calcular ventas totales en SP durante 2018.",
+      "expected_memory": "sales_sp_2018",
+      "raw_candidates": [
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "validated": true,
+          "distance": 0.13339367508888245
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.5266746878623962
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.629891574382782
+        },
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.693739652633667
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "sales_rj_2018",
+      "category": "filter",
+      "question": "Ingresos obtenidos en Río de Janeiro durante 2018",
+      "normalized_question": "Calcular ventas totales en RJ durante 2018.",
+      "expected_memory": "sales_rj_2018",
+      "raw_candidates": [
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.13339367508888245
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.5320976376533508
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6243917942047119
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.6915961503982544
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "orders_2017",
+      "category": "date",
+      "question": "Cantidad de compras realizadas en 2017",
+      "normalized_question": "Contar pedidos realizados durante 2017.",
+      "expected_memory": "orders_2017",
+      "raw_candidates": [
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.45056018233299255
+        },
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.5266746878623962
+        },
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "validated": true,
+          "distance": 0.5320976376533508
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.661722719669342
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "inventory_paraphrase",
+      "category": "paraphrase",
+      "question": "Productos que deben ser reabastecidos",
+      "normalized_question": "Listar productos con stock por debajo del punto de reorden.",
+      "expected_memory": "inventory_reorder",
+      "raw_candidates": [
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "validated": true,
+          "distance": 0.5396507978439331
+        },
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.6703586578369141
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6939584016799927
+        },
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "validated": true,
+          "distance": 0.735622763633728
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "returns_paraphrase",
+      "category": "paraphrase",
+      "question": "Número de productos retornados",
+      "normalized_question": "Contar las devoluciones registradas.",
+      "expected_memory": "returns_count",
+      "raw_candidates": [
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.45056018233299255
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.6108989119529724
+        },
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "validated": true,
+          "distance": 0.6243917942047119
+        },
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.629891574382782
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "reviews_average",
+      "category": "metric",
+      "question": "Promedio de puntuación de los clientes",
+      "normalized_question": "Calcular la calificación promedio de las reseñas.",
+      "expected_memory": "reviews_average",
+      "raw_candidates": [
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.3958388566970825
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6108989119529724
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.661722719669342
+        },
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "validated": true,
+          "distance": 0.6802688241004944
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "support_unresolved",
+      "category": "filter",
+      "question": "Casos de soporte pendientes",
+      "normalized_question": "Listar tickets de soporte que todavía no fueron resueltos.",
+      "expected_memory": "support_unresolved",
+      "raw_candidates": [
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "validated": true,
+          "distance": 0.0
+        },
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.5396507978439331
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6687120199203491
+        },
+        {
+          "key": "carrier_ranking",
+          "memory_id": "query-memory-v2-d0abc2af063f5be5f6609e560db1c675",
+          "validated": true,
+          "distance": 0.698702335357666
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.7444274425506592
+        }
+      ],
+      "structured_candidates": [
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "distance": 0.0
+        }
+      ]
+    },
+    {
+      "id": "wrong_year",
+      "category": "negative_date",
+      "question": "Ventas de SP en 2017",
+      "normalized_question": "Calcular ventas totales en SP durante 2017.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.12221028655767441
+        },
+        {
+          "key": "sales_rj_2018",
+          "memory_id": "query-memory-v2-3d5e97410940060bec3b287e488693b9",
+          "validated": true,
+          "distance": 0.23623885214328766
+        },
+        {
+          "key": "orders_2017",
+          "memory_id": "query-memory-v2-74246b6fa5510247889969ec46bdb8c1",
+          "validated": true,
+          "distance": 0.37309983372688293
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6085594892501831
+        },
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.6729278564453125
+        }
+      ],
+      "structured_candidates": []
+    },
+    {
+      "id": "unvalidated_price",
+      "category": "unvalidated",
+      "question": "Precio promedio de los productos",
+      "normalized_question": "Calcular el precio promedio de los productos.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.0
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.3958388566970825
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.6505382061004639
+        },
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.6703586578369141
+        },
+        {
+          "key": "sales_sp_2018",
+          "memory_id": "query-memory-v2-ca1c4f1c12d132e4c30b2cb322c3124e",
+          "validated": true,
+          "distance": 0.693739652633667
+        }
+      ],
+      "structured_candidates": []
+    },
+    {
+      "id": "out_of_domain",
+      "category": "out_of_domain",
+      "question": "¿Cuál es la capital del Perú?",
+      "normalized_question": "Indicar cuál es la capital del Perú.",
+      "expected_memory": null,
+      "raw_candidates": [
+        {
+          "key": "price_unvalidated",
+          "memory_id": "query-memory-v2-8bc3240fe51149724e2830f2aaf646ab",
+          "validated": false,
+          "distance": 0.6802594065666199
+        },
+        {
+          "key": "inventory_reorder",
+          "memory_id": "query-memory-v2-3efb0061096c4c7d6d05d3b81925a03a",
+          "validated": true,
+          "distance": 0.700292706489563
+        },
+        {
+          "key": "support_unresolved",
+          "memory_id": "query-memory-v2-9c992316eaadf1b75dc36e3e8e12ca3e",
+          "validated": true,
+          "distance": 0.7201428413391113
+        },
+        {
+          "key": "returns_count",
+          "memory_id": "query-memory-v2-4d220812cf50bcc7086e8f5af31dccfb",
+          "validated": true,
+          "distance": 0.7257735729217529
+        },
+        {
+          "key": "reviews_average",
+          "memory_id": "query-memory-v2-b44fe3ac4a54fba5fc4f6199b3d72015",
+          "validated": true,
+          "distance": 0.734525203704834
+        }
+      ],
+      "structured_candidates": []
+    }
+  ],
+  "notes": [
+    "Este benchmark no evalúa la calidad del optimizer.",
+    "Las búsquedas estructurales solo reutilizan memorias validadas.",
+    "No modifica el umbral productivo automáticamente."
+  ]
+}
