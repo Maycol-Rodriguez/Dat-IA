@@ -16,11 +16,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from pydantic import BaseModel, Field
 
 from app.db.connect_db import create_db_engine
-from app.memory.query_memory import (
-    get_or_create_query_memory_collection,
-    save_query_memory,
-    search_query_memory,
-)
 from app.memory.query_memory_v2 import (
     QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
     QUERY_MEMORY_V2_INSPECTION_DISTANCE_THRESHOLD,
@@ -63,7 +58,6 @@ answer_llm = None  # ChatGoogleGenerativeAI usado por synthesize_answer (with_st
 embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
-query_memory_collection = None
 query_memory_v2_collection = None
 image_collection = None
 shield_tokenizer = None
@@ -80,7 +74,7 @@ async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
     global rag_llm, optimizer_llm, answer_llm, embeddings_model
     global chroma_client, text_collection, image_collection
-    global query_memory_collection, query_memory_v2_collection
+    global query_memory_v2_collection
     global shield_tokenizer, shield_model, sql_database
 
     if not GOOGLE_API_KEY:
@@ -152,16 +146,6 @@ async def lifespan(app: FastAPI):
     )
     # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
     print(f"[startup] ChromaDB: {text_collection._collection.count()} esquemas registrados.")
-
-    query_memory_collection = get_or_create_query_memory_collection(
-        chroma_client,
-        embeddings_model,
-    )
-    print(
-        "[startup] Query memory V1: "
-        f"{query_memory_collection._collection.count()} "
-        "consultas registradas."
-    )
 
     query_memory_v2_collection = (
         get_or_create_query_memory_v2_collection(
@@ -288,28 +272,12 @@ class _AnswerPayload(BaseModel):
     answer: str
 
 
-class MemorySearchRequest(BaseModel):
-    question: str = Field(..., min_length=1)
-    n_results: int = Field(default=3, ge=1, le=10)
 
 
-class MemorySearchResult(BaseModel):
-    question: str
-    sql: str
-    sources: str
-    confidence_note: str
-    status: str
-    distance: float
 
 
-class MemorySearchResponse(BaseModel):
-    results: list[MemorySearchResult]
 
 
-class MemoryStatsResponse(BaseModel):
-    collection: str
-    count: int
-    status: str
 
 
 class MemoryV2StatsResponse(BaseModel):
@@ -1098,46 +1066,8 @@ async def ingest_document(
     return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
 
 
-@app.get("/memory/stats", response_model=MemoryStatsResponse)
-def memory_stats() -> MemoryStatsResponse:
-    if query_memory_collection is None:
-        return MemoryStatsResponse(
-            collection="query_memory",
-            count=0,
-            status="not_initialized",
-        )
-
-    return MemoryStatsResponse(
-        collection="query_memory",
-        count=query_memory_collection._collection.count(),
-        status="ok",
-    )
 
 
-@app.post("/memory/search", response_model=MemorySearchResponse)
-def memory_search(request: MemorySearchRequest) -> MemorySearchResponse:
-    if query_memory_collection is None:
-        raise HTTPException(503, "La memoria de consultas no está inicializada.")
-
-    results = search_query_memory(
-        query_memory_collection,
-        query=request.question,
-        n_results=request.n_results,
-    )
-
-    return MemorySearchResponse(
-        results=[
-            MemorySearchResult(
-                question=str(result["metadata"].get("question", "")),
-                sql=str(result["metadata"].get("sql", "")),
-                sources=str(result["metadata"].get("sources", "")),
-                confidence_note=str(result["metadata"].get("confidence_note", "")),
-                status=str(result["metadata"].get("status", "")),
-                distance=float(result["distance"]),
-            )
-            for result in results
-        ]
-    )
 
 
 @app.get(
@@ -1313,20 +1243,6 @@ async def query_json(request: QueryRequest):
             execution_status="not_executed",
         )
 
-    if query_memory_collection is not None:
-        try:
-            save_query_memory(
-                query_memory_collection,
-                question=request.question,
-                sql=rag_response.sql,
-                sources=rag_response.sources,
-                confidence_note=rag_response.confidence_note,
-                status=rag_response.status,
-                model=MODEL,
-            )
-        except Exception as exc:
-            print(f"[memory] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
-
     return rag_response
 
 
@@ -1440,20 +1356,6 @@ async def query_answer(request: QueryRequest):
             validated=True,
             execution_status="success",
         )
-
-    if query_memory_collection is not None:
-        try:
-            save_query_memory(
-                query_memory_collection,
-                question=request.question,
-                sql=rag_response.sql,
-                sources=rag_response.sources,
-                confidence_note=rag_response.confidence_note,
-                status="success",
-                model=MODEL,
-            )
-        except Exception as exc:
-            print(f"[memory] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
 
     return AnswerResponse(
         answer=answer_text,

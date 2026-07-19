@@ -63,23 +63,8 @@ def test_ask_rejects_empty_question() -> None:
 
     assert response.status_code == 422
 
-def test_memory_stats_returns_response() -> None:
-    response = client.get("/memory/stats")
-
-    assert response.status_code == 200
-    assert response.json()["collection"] == "query_memory"
 
 
-def test_memory_search_returns_503_when_memory_is_not_initialized() -> None:
-    response = client.post(
-        "/memory/search",
-        json={
-            "question": "Que empresa de transporte tiene mejor cumplimiento?",
-            "n_results": 3,
-        },
-    )
-
-    assert response.status_code == 503
 
 
 
@@ -1034,7 +1019,7 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(main_module, "text_collection", FakeCollection())
-    monkeypatch.setattr(main_module, "query_memory_collection", None)
+
     monkeypatch.setattr(main_module, "query_embeddings", fake_query_embeddings)
     monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response)
 
@@ -1116,11 +1101,7 @@ def _mock_query_json_memory_pipeline(
         "text_collection",
         _JsonMemoryCollection(),
     )
-    monkeypatch.setattr(
-        main_module,
-        "query_memory_collection",
-        None,
-    )
+
     monkeypatch.setattr(
         main_module,
         "query_embeddings",
@@ -1433,7 +1414,7 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
 
     monkeypatch.setattr(main_module, "classify_shield", lambda text: (shield_label, 0.99))
     monkeypatch.setattr(main_module, "text_collection", FakeAnswerCollection())
-    monkeypatch.setattr(main_module, "query_memory_collection", None)
+
     monkeypatch.setattr(
         main_module,
         "query_memory_v2_collection",
