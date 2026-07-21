@@ -29,7 +29,7 @@ def test_humanize_column_name() -> None:
         humanize_column_name(
             "order_id"
         )
-        == "Order ID"
+        == "ID del pedido"
     )
 
 
@@ -269,4 +269,62 @@ def test_percentage_already_in_percentage_points() -> None:
             "completion_rate"
         ]
         == "97.00 %"
+    )
+
+
+def test_known_spanish_column_labels() -> None:
+    assert (
+        humanize_column_name(
+            "stock_qty"
+        )
+        == "Cantidad en stock"
+    )
+
+    assert (
+        humanize_column_name(
+            "reorder_point"
+        )
+        == "Punto de reorden"
+    )
+
+    assert (
+        humanize_column_name(
+            "discount_pct"
+        )
+        == "Porcentaje de descuento"
+    )
+
+    assert (
+        humanize_column_name(
+            "units_sold_during"
+        )
+        == (
+            "Unidades vendidas durante "
+            "la promoción"
+        )
+    )
+
+
+def test_generated_alias_uses_spanish_tokens() -> None:
+    assert (
+        humanize_column_name(
+            "total_orders"
+        )
+        == "Total pedidos"
+    )
+
+    assert (
+        humanize_column_name(
+            "average_price"
+        )
+        == "Promedio precio"
+    )
+
+
+def test_unknown_alias_keeps_generic_fallback() -> None:
+    assert (
+        humanize_column_name(
+            "custom_metric_xyz"
+        )
+        == "Custom metric xyz"
     )
