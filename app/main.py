@@ -16,6 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from pydantic import BaseModel, Field
 
 from app.db.connect_db import create_db_engine
+from app.formatting import format_result_table
 from app.memory.query_memory_v2 import (
     QUERY_MEMORY_V2_DISTANCE_THRESHOLD,
     QUERY_MEMORY_V2_INSPECTION_DISTANCE_THRESHOLD,
@@ -260,12 +261,26 @@ class EmbeddingsResponse(BaseModel):
     ddl: str
 
 
+class ResultTableColumn(BaseModel):
+    key: str
+    label: str
+    type: str
+
+
+class ResultTable(BaseModel):
+    columns: list[ResultTableColumn]
+    rows: list[dict[str, str]]
+    row_count: int
+    locale: str
+
+
 class AnswerResponse(BaseModel):
     answer: str
     sql: str
     data: list[dict]
     sources: str
     status: str
+    table: ResultTable | None = None
 
 
 class _AnswerPayload(BaseModel):
@@ -1328,6 +1343,10 @@ async def query_answer(request: QueryRequest):
         rows,
     )
 
+    formatted_table = ResultTable(
+        **format_result_table(rows)
+    )
+
     matching_memory = _find_matching_query_memory_v2_result(
         memory_examples,
         rag_response.sql,
@@ -1363,6 +1382,7 @@ async def query_answer(request: QueryRequest):
         data=rows,
         sources=rag_response.sources,
         status="success",
+        table=formatted_table,
     )
 
 

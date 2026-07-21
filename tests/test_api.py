@@ -1462,6 +1462,30 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
     assert body["status"] == "success"
     assert body["answer"] == "El transportista con mejor cumplimiento es DHL."
     assert body["data"] == [{"carrier_name": "DHL", "on_time_rate": 0.97}]
+
+    assert body["table"] == {
+        "columns": [
+            {
+                "key": "carrier_name",
+                "label": "Carrier name",
+                "type": "text",
+            },
+            {
+                "key": "on_time_rate",
+                "label": "On time rate",
+                "type": "percentage",
+            },
+        ],
+        "rows": [
+            {
+                "carrier_name": "DHL",
+                "on_time_rate": "97.00 %",
+            }
+        ],
+        "row_count": 1,
+        "locale": "es_PE",
+    }
+
     assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;"
 
 
