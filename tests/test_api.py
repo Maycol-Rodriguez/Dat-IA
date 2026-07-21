@@ -1467,12 +1467,12 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
         "columns": [
             {
                 "key": "carrier_name",
-                "label": "Carrier name",
+                "label": "Transportista",
                 "type": "text",
             },
             {
                 "key": "on_time_rate",
-                "label": "On time rate",
+                "label": "Tasa de puntualidad",
                 "type": "percentage",
             },
         ],

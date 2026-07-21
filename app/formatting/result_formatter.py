@@ -15,6 +15,8 @@ from typing import Any, Literal
 from babel.dates import format_date, format_datetime
 from babel.numbers import format_decimal, format_percent
 
+from .column_labels import get_column_label
+
 
 DEFAULT_LOCALE = "es_PE"
 NULL_DISPLAY = "—"
@@ -140,6 +142,13 @@ def humanize_column_name(key: str) -> str:
         order_id -> Order ID
         on_time_rate -> On time rate
     """
+    registered_label = get_column_label(
+        key
+    )
+
+    if registered_label is not None:
+        return registered_label
+
     label = re.sub(
         r"[_\-\s]+",
         " ",

@@ -23,7 +23,7 @@ def test_humanize_column_name() -> None:
         humanize_column_name(
             "carrier_name"
         )
-        == "Carrier name"
+        == "Transportista"
     )
     assert (
         humanize_column_name(
