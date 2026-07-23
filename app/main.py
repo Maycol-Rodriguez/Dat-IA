@@ -30,8 +30,10 @@ from app.memory.query_memory_v2 import (
 from app.optimizer.query_optimizer import OptimizedQuery, optimize_query
 
 import torch
-from transformers import AutoTokenizer\
-    , AutoModelForSequenceClassification#, BitsAndBytesConfig, AutoModelForCausalLM
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+)  # , BitsAndBytesConfig, AutoModelForCausalLM
 
 
 # ---------------------------------------------------------------------------
@@ -43,19 +45,23 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 MODEL = "gemini-3.1-flash-lite-preview"
 EMBED_MODEL = "gemini-embedding-2"
 CHROMA_PATH = "./chroma_db"
-CHROMA_HOST = os.environ.get("CHROMA_HOST")          # set by docker-compose
+CHROMA_HOST = os.environ.get("CHROMA_HOST")  # set by docker-compose
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", 8000))
 
-USE_CLOUDFLARE_LLM     = os.environ.get("USE_CLOUDFLARE_LLM", "false").lower() == "true"
-CF_ACCOUNT_ID          = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-CF_API_KEY             = os.environ.get("CLOUDFLARE_API_KEY", "")
-CF_MODEL               = "@cf/qwen/qwen2.5-coder-32b-instruct"
-CF_BASE_URL            = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/v1"
+USE_CLOUDFLARE_LLM = os.environ.get("USE_CLOUDFLARE_LLM", "false").lower() == "true"
+CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CF_API_KEY = os.environ.get("CLOUDFLARE_API_KEY", "")
+CF_MODEL = "@cf/qwen/qwen2.5-coder-32b-instruct"
+CF_BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/v1"
 
 # Estos se inicializan en el lifespan para no bloquear el import
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
-optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
-answer_llm = None  # ChatGoogleGenerativeAI usado por synthesize_answer (with_structured_output)
+optimizer_llm = (
+    None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
+)
+answer_llm = (
+    None  # ChatGoogleGenerativeAI usado por synthesize_answer (with_structured_output)
+)
 embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
@@ -69,6 +75,7 @@ sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
 # ---------------------------------------------------------------------------
 # Lifespan: inicialización al arrancar la app
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -101,10 +108,7 @@ async def lifespan(app: FastAPI):
             temperature=0.0,
             max_output_tokens=600,
         ).with_structured_output(RAGResponse)
-        print(
-            "[startup] Generador SQL inicializado con "
-            f"Google Gemini: {MODEL}"
-        )
+        print(f"[startup] Generador SQL inicializado con Google Gemini: {MODEL}")
 
     # Inicializar LLM del optimizer (LangChain, salida estructurada dentro de optimize_query)
     optimizer_llm = ChatGoogleGenerativeAI(
@@ -146,13 +150,13 @@ async def lifespan(app: FastAPI):
         embedding_function=embeddings_model,
     )
     # image_collection = chroma_client.get_or_create_collection("vouchers_financieros")
-    print(f"[startup] ChromaDB: {text_collection._collection.count()} esquemas registrados.")
+    print(
+        f"[startup] ChromaDB: {text_collection._collection.count()} esquemas registrados."
+    )
 
-    query_memory_v2_collection = (
-        get_or_create_query_memory_v2_collection(
-            chroma_client,
-            embeddings_model,
-        )
+    query_memory_v2_collection = get_or_create_query_memory_v2_collection(
+        chroma_client,
+        embeddings_model,
     )
     print(
         "[startup] Query memory V2: "
@@ -168,41 +172,56 @@ async def lifespan(app: FastAPI):
         try:
             db_engine = create_db_engine(DATABASE_URL)
             sql_database = SQLDatabase(db_engine, lazy_table_reflection=True)
-            print(f"[startup] SQLDatabase conectado (dialecto: {sql_database.dialect}).")
+            print(
+                f"[startup] SQLDatabase conectado (dialecto: {sql_database.dialect})."
+            )
         except Exception as e:
             print(f"[startup] ADVERTENCIA: No se pudo conectar a DATABASE_URL: {e}")
     else:
-        print("[startup] DATABASE_URL no configurada: /query/answer no podrá ejecutar SQL.")
+        print(
+            "[startup] DATABASE_URL no configurada: /query/answer no podrá ejecutar SQL."
+        )
 
     # Ingesta automática
     if text_collection._collection.count() == 0:
-            print("[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json...")
-            try:
-                with open("data/ddl.json", "r", encoding="utf-8") as f:
-                    content = json.load(f)
+        print(
+            "[startup] Colección vacía. Iniciando ingesta automática desde data/ddl.json..."
+        )
+        try:
+            with open("data/ddl.json", "r", encoding="utf-8") as f:
+                content = json.load(f)
 
-                chunks = cargar_tablas(content)
+            chunks = cargar_tablas(content)
 
-                if chunks:
-                    batch_size = 50
-                    for i in range(0, len(chunks), batch_size):
-                        batch = chunks[i : i + batch_size]
+            if chunks:
+                batch_size = 50
+                for i in range(0, len(chunks), batch_size):
+                    batch = chunks[i : i + batch_size]
 
-                        text_collection.add_texts(
-                            texts     = [chunk["descripcion"] for chunk in batch],
-                            metadatas = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
-                            ids       = [str(chunk["id"]) for chunk in batch],
-                        )
-                    print(f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas.")
-            except FileNotFoundError:
-                print("[startup] ADVERTENCIA: No se encontró 'data/ddl.json' para la ingesta inicial.")
-            except Exception as e:
-                print(f"[startup] ERROR durante la ingesta automática: {e}")
+                    text_collection.add_texts(
+                        texts=[chunk["descripcion"] for chunk in batch],
+                        metadatas=[
+                            {"nombre": chunk["nombre"], "ddl": chunk["ddl"]}
+                            for chunk in batch
+                        ],
+                        ids=[str(chunk["id"]) for chunk in batch],
+                    )
+                print(
+                    f"[startup] Ingesta completada exitosamente. {len(chunks)} tablas indexadas."
+                )
+        except FileNotFoundError:
+            print(
+                "[startup] ADVERTENCIA: No se encontró 'data/ddl.json' para la ingesta inicial."
+            )
+        except Exception as e:
+            print(f"[startup] ERROR durante la ingesta automática: {e}")
 
     # Inicializar SQLPromptShield
     print("[startup] Cargando modelo SQLPromptShield...")
     shield_tokenizer = AutoTokenizer.from_pretrained("salmane11/SQLPromptShield")
-    shield_model = AutoModelForSequenceClassification.from_pretrained("salmane11/SQLPromptShield")
+    shield_model = AutoModelForSequenceClassification.from_pretrained(
+        "salmane11/SQLPromptShield"
+    )
     # shield_model.eval() # Recomendado: poner el modelo en modo evaluación
     print("[startup] SQLPromptShield cargado exitosamente.")
 
@@ -216,7 +235,7 @@ app = FastAPI(
     title="Dat-IA API",
     version="0.1.0",
     description="API inicial para el agente analista de datos Dat-IA.",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -224,17 +243,21 @@ app = FastAPI(
 # Schemas de request / response
 # ---------------------------------------------------------------------------
 
+
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1)
-    
+
+
 class ShieldRequest(BaseModel):
     text_input: str
+
 
 class RAGResponse(BaseModel):
     sql: str
     sources: str
     confidence_note: str
     status: str
+
 
 class SHIELDResponse(BaseModel):
     sql: str
@@ -249,10 +272,12 @@ class IngestResponse(BaseModel):
     collection: str
     chunks: list
 
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
     service: str
     version: str
+
 
 class EmbeddingsResponse(BaseModel):
     tabla: list[str]
@@ -285,14 +310,6 @@ class AnswerResponse(BaseModel):
 
 class _AnswerPayload(BaseModel):
     answer: str
-
-
-
-
-
-
-
-
 
 
 class MemoryV2StatsResponse(BaseModel):
@@ -361,9 +378,11 @@ class QueryOptimizeResponse(BaseModel):
     suggested_tables: list[str]
     optimizer: str
 
+
 # ---------------------------------------------------------------------------
 # Utilidades internas (mismas funciones que en el notebook)
 # ---------------------------------------------------------------------------
+
 
 def _parse_memory_v2_json(
     metadata: dict,
@@ -399,12 +418,8 @@ def _memory_v2_metadata_to_result(
 
     return MemoryV2SearchResult(
         memory_id=str(metadata.get("memory_id") or ""),
-        original_question=str(
-            metadata.get("original_question") or ""
-        ),
-        normalized_question=str(
-            metadata.get("normalized_question") or ""
-        ),
+        original_question=str(metadata.get("original_question") or ""),
+        normalized_question=str(metadata.get("normalized_question") or ""),
         intent=str(metadata.get("intent") or ""),
         operation=str(metadata.get("operation") or "detail"),
         metrics=_parse_memory_v2_json(
@@ -436,13 +451,9 @@ def _memory_v2_metadata_to_result(
         sources=str(metadata.get("sources") or ""),
         status=str(metadata.get("status") or ""),
         validated=validated,
-        execution_status=str(
-            metadata.get("execution_status") or ""
-        ),
+        execution_status=str(metadata.get("execution_status") or ""),
         usage_count=int(metadata.get("usage_count") or 0),
-        retrieval_count=int(
-            metadata.get("retrieval_count") or 0
-        ),
+        retrieval_count=int(metadata.get("retrieval_count") or 0),
         created_at=str(metadata.get("created_at") or ""),
         updated_at=str(metadata.get("updated_at") or ""),
         last_used_at=str(metadata.get("last_used_at") or ""),
@@ -462,37 +473,45 @@ def cargar_tablas(tablas: list) -> list[dict]:
     """
     return [
         {
-            "id":          tabla["id"],
-            "nombre":      tabla["nombre"],
+            "id": tabla["id"],
+            "nombre": tabla["nombre"],
             "descripcion": tabla["descripcion"],
-            "ddl":         tabla["ddl"],
+            "ddl": tabla["ddl"],
         }
         for tabla in tablas
     ]
 
-def query_embeddings(collection, query: str, distance_threshold: float = 0.7) -> EmbeddingsResponse:
+
+def query_embeddings(
+    collection, query: str, distance_threshold: float = 0.7
+) -> EmbeddingsResponse:
     """
     Consulta vectorial filtrando por distancia semántica.
     Solo retorna resultados con distancia <= threshold.
     """
-    resultados = collection.similarity_search_with_score(query, k=10)  # trae más candidatos
+    resultados = collection.similarity_search_with_score(
+        query, k=10
+    )  # trae más candidatos
 
     # Filtrar por umbral de distancia
-    filtrados = [
-        (doc, dist) for doc, dist in resultados if dist <= distance_threshold
-    ]
+    filtrados = [(doc, dist) for doc, dist in resultados if dist <= distance_threshold]
 
     if not filtrados:
         return EmbeddingsResponse(tabla=[], descripcion=[], ddl="", distance=[])
 
-    listTablas        = [doc.metadata["nombre"] for doc, dist in filtrados]
-    listDescripciones = [doc.page_content       for doc, dist in filtrados]
-    listDistances     = [dist                   for doc, dist in filtrados]
-    listDdls          = [doc.metadata["ddl"]    for doc, dist in filtrados]
+    listTablas = [doc.metadata["nombre"] for doc, dist in filtrados]
+    listDescripciones = [doc.page_content for doc, dist in filtrados]
+    listDistances = [dist for doc, dist in filtrados]
+    listDdls = [doc.metadata["ddl"] for doc, dist in filtrados]
 
-    ddls = '\n'.join(listDdls)
+    ddls = "\n".join(listDdls)
 
-    return EmbeddingsResponse(tabla=listTablas, descripcion=listDescripciones, ddl=ddls, distance=listDistances)
+    return EmbeddingsResponse(
+        tabla=listTablas,
+        descripcion=listDescripciones,
+        ddl=ddls,
+        distance=listDistances,
+    )
 
 
 def _get_suggested_table_embeddings(
@@ -526,14 +545,9 @@ def _get_suggested_table_embeddings(
     seen = set()
 
     for table_name in suggested_tables or []:
-        normalized_name = str(
-            table_name or ""
-        ).strip()
+        normalized_name = str(table_name or "").strip()
 
-        if (
-            not normalized_name
-            or normalized_name in seen
-        ):
+        if not normalized_name or normalized_name in seen:
             continue
 
         try:
@@ -555,22 +569,14 @@ def _get_suggested_table_embeddings(
             continue
 
         ids = result.get("ids") or []
-        documents = (
-            result.get("documents") or []
-        )
-        metadatas = (
-            result.get("metadatas") or []
-        )
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
 
         if not ids:
             continue
 
         for index, _ in enumerate(ids):
-            metadata = (
-                metadatas[index]
-                if index < len(metadatas)
-                else {}
-            ) or {}
+            metadata = (metadatas[index] if index < len(metadatas) else {}) or {}
 
             table = str(
                 metadata.get(
@@ -578,22 +584,12 @@ def _get_suggested_table_embeddings(
                     normalized_name,
                 )
             ).strip()
-            ddl = str(
-                metadata.get("ddl") or ""
-            ).strip()
+            ddl = str(metadata.get("ddl") or "").strip()
 
-            if (
-                not table
-                or not ddl
-                or table in seen
-            ):
+            if not table or not ddl or table in seen:
                 continue
 
-            description = (
-                str(documents[index] or "")
-                if index < len(documents)
-                else ""
-            )
+            description = str(documents[index] or "") if index < len(documents) else ""
 
             tables.append(table)
             descriptions.append(description)
@@ -658,17 +654,13 @@ def retrieve_ddl_context(
     if exact.ddl:
         ddls.append(exact.ddl)
 
-    for index, table in enumerate(
-        semantic.tabla
-    ):
+    for index, table in enumerate(semantic.tabla):
         if table in seen:
             continue
 
-        recovered = (
-            _get_suggested_table_embeddings(
-                collection,
-                [table],
-            )
+        recovered = _get_suggested_table_embeddings(
+            collection,
+            [table],
         )
 
         if not recovered.ddl:
@@ -680,20 +672,14 @@ def retrieve_ddl_context(
             recovered.descripcion[0]
             if recovered.descripcion
             else (
-                semantic.descripcion[index]
-                if index < len(
-                    semantic.descripcion
-                )
-                else ""
+                semantic.descripcion[index] if index < len(semantic.descripcion) else ""
             )
         )
         descriptions.append(description)
 
         distance = (
             semantic.distance[index]
-            if index < len(
-                semantic.distance
-            )
+            if index < len(semantic.distance)
             else distance_threshold
         )
         distances.append(distance)
@@ -774,10 +760,7 @@ def _search_query_memory_v2_examples(
             distance_threshold=distance_threshold,
         )
     except Exception as exc:
-        print(
-            "[memory-v2] ADVERTENCIA: No se pudieron recuperar "
-            f"ejemplos: {exc}"
-        )
+        print(f"[memory-v2] ADVERTENCIA: No se pudieron recuperar ejemplos: {exc}")
         return []
 
 
@@ -801,10 +784,7 @@ def _find_matching_query_memory_v2_result(
         metadata = result.get("metadata") or {}
         candidate_sql = str(metadata.get("sql") or "")
 
-        if (
-            _normalize_sql_for_memory_match(candidate_sql)
-            == normalized_sql
-        ):
+        if _normalize_sql_for_memory_match(candidate_sql) == normalized_sql:
             return result
 
     return None
@@ -838,10 +818,7 @@ def _save_query_memory_v2(
             record,
         )
     except Exception as exc:
-        print(
-            "[memory-v2] ADVERTENCIA: No se pudo guardar "
-            f"la consulta: {exc}"
-        )
+        print(f"[memory-v2] ADVERTENCIA: No se pudo guardar la consulta: {exc}")
         return None
 
 
@@ -862,9 +839,7 @@ def _format_query_memory_examples(
             or ""
         ).strip()
         example_sql = str(metadata.get("sql") or "").strip()
-        example_sources = str(
-            metadata.get("sources") or ""
-        ).strip()
+        example_sources = str(metadata.get("sources") or "").strip()
 
         if not example_question or not example_sql:
             continue
@@ -1009,6 +984,7 @@ def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/")
 async def root():
     """Health check."""
@@ -1016,8 +992,9 @@ async def root():
         "status": "ok",
         "model": MODEL,
         "embed_model": EMBED_MODEL,
-        "text_docs": text_collection._collection.count()
+        "text_docs": text_collection._collection.count(),
     }
+
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
@@ -1026,6 +1003,7 @@ def health() -> HealthResponse:
         service="dat-ia-api",
         version=app.version,
     )
+
 
 @app.get("/ready")
 def ready() -> dict:
@@ -1038,6 +1016,7 @@ def ready() -> dict:
             else "DATABASE_URL no configurada o la conexión a Supabase falló al arrancar."
         ),
     }
+
 
 @app.post("/query/optimize", response_model=QueryOptimizeResponse)
 def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
@@ -1053,9 +1032,7 @@ def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
 
 
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest_document(
-    file: Optional[UploadFile] = File(default=None)
-):
+async def ingest_document(file: Optional[UploadFile] = File(default=None)):
     # -- Indexación de texto (MD/TXT) --
     global text_collection
 
@@ -1066,23 +1043,22 @@ async def ingest_document(
     if not chunks:
         raise HTTPException(400, "No se encontraron tablas.")
 
-
     # Embed e indexar
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
 
         text_collection.add_texts(
-            texts     = [chunk["descripcion"] for chunk in batch],
-            metadatas = [{"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch],
-            ids       = [chunk["id"] for chunk in batch],
+            texts=[chunk["descripcion"] for chunk in batch],
+            metadatas=[
+                {"nombre": chunk["nombre"], "ddl": chunk["ddl"]} for chunk in batch
+            ],
+            ids=[chunk["id"] for chunk in batch],
         )
 
-    return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
-
-
-
-
+    return IngestResponse(
+        status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks
+    )
 
 
 @app.get(
@@ -1108,8 +1084,7 @@ def memory_v2_stats() -> MemoryV2StatsResponse:
     except Exception as exc:
         raise HTTPException(
             503,
-            "No se pudieron consultar las estadísticas "
-            "de Query Memory V2.",
+            "No se pudieron consultar las estadísticas de Query Memory V2.",
         ) from exc
 
     metadatas = stored.get("metadatas") or []
@@ -1133,9 +1108,7 @@ def memory_v2_stats() -> MemoryV2StatsResponse:
         if is_validated:
             validated_count += 1
 
-        total_retrievals += int(
-            raw_metadata.get("retrieval_count") or 0
-        )
+        total_retrievals += int(raw_metadata.get("retrieval_count") or 0)
 
     total = len(metadatas)
 
@@ -1168,12 +1141,9 @@ def memory_v2_search(
         100,
     )
     try:
-        candidates = (
-            query_memory_v2_collection
-            .similarity_search_with_score(
-                request.question,
-                k=candidate_count,
-            )
+        candidates = query_memory_v2_collection.similarity_search_with_score(
+            request.question,
+            k=candidate_count,
         )
     except Exception as exc:
         raise HTTPException(
@@ -1192,10 +1162,7 @@ def memory_v2_search(
             distance,
         )
 
-        if (
-            request.validated is not None
-            and result.validated != request.validated
-        ):
+        if request.validated is not None and result.validated != request.validated:
             continue
 
         results.append(result)
@@ -1210,8 +1177,12 @@ def memory_v2_search(
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
     if text_collection is None or text_collection._collection.count() == 0:
-        return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
-                           sources="",confidence_note="")
+        return RAGResponse(
+            sql="SELECT 1 AS prototype_result;",
+            status="prototype",
+            sources="",
+            confidence_note="",
+        )
 
     try:
         optimized_query = optimize_query(
@@ -1228,15 +1199,13 @@ async def query_json(request: QueryRequest):
     resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
-        suggested_tables=(
-            optimized_query.suggested_tables
-        ),
+        suggested_tables=(optimized_query.suggested_tables),
         distance_threshold=0.7,
     )
 
     if resp.ddl == "":
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
-    
+
     print(f"Found table: {resp.ddl}")
 
     rag_response = build_rag_response(
@@ -1266,7 +1235,9 @@ async def query_answer(request: QueryRequest):
     """Flujo completo: shield -> optimizer -> retrieval -> SQL -> ejecución -> respuesta."""
     label, _score = classify_shield(request.question)
     if label == "MALICIOUS":
-        raise HTTPException(422, "La pregunta fue bloqueada por el filtro de seguridad.")
+        raise HTTPException(
+            422, "La pregunta fue bloqueada por el filtro de seguridad."
+        )
 
     if text_collection is None or text_collection._collection.count() == 0:
         return AnswerResponse(
@@ -1289,17 +1260,13 @@ async def query_answer(request: QueryRequest):
     memory_examples = _search_query_memory_v2_examples(
         optimized_query,
         n_results=2,
-        distance_threshold=(
-            QUERY_MEMORY_V2_DISTANCE_THRESHOLD
-        ),
+        distance_threshold=(QUERY_MEMORY_V2_DISTANCE_THRESHOLD),
     )
 
     resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
-        suggested_tables=(
-            optimized_query.suggested_tables
-        ),
+        suggested_tables=(optimized_query.suggested_tables),
         distance_threshold=0.7,
     )
 
@@ -1322,7 +1289,9 @@ async def query_answer(request: QueryRequest):
         )
 
     if sql_database is None:
-        raise HTTPException(503, "La ejecución de SQL no está configurada (DATABASE_URL faltante).")
+        raise HTTPException(
+            503, "La ejecución de SQL no está configurada (DATABASE_URL faltante)."
+        )
 
     execution = execute_sql(sql_database, rag_response.sql)
 
@@ -1343,19 +1312,14 @@ async def query_answer(request: QueryRequest):
         rows,
     )
 
-    formatted_table = ResultTable(
-        **format_result_table(rows)
-    )
+    formatted_table = ResultTable(**format_result_table(rows))
 
     matching_memory = _find_matching_query_memory_v2_result(
         memory_examples,
         rag_response.sql,
     )
 
-    if (
-        matching_memory is not None
-        and query_memory_v2_collection is not None
-    ):
+    if matching_memory is not None and query_memory_v2_collection is not None:
         try:
             mark_query_memory_v2_results_used(
                 query_memory_v2_collection,
@@ -1394,5 +1358,5 @@ async def sql_shield(request: ShieldRequest):
         sql=request.text_input,
         sources="SQLPromptShield",
         confidence_note=f"Score: {score:.4f}",
-        status=label
+        status=label,
     )

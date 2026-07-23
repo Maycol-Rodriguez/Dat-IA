@@ -35,6 +35,8 @@ dependencies = [
     "sqlalchemy>=2.0.50",
     "jiter>=0.6.0",
     "babel>=2.17,<3",
+    # --- LangSmith ---
+    "langsmith>=0.1.2",
 ]
 
 [dependency-groups]

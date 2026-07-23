@@ -13,6 +13,10 @@
       # GOOGLE_API_KEY: # Tu key acá
       CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"
       CLOUDFLARE_API_KEY: "${CLOUDFLARE_API_KEY}"
+      USE_LANGSMITH_TRACING: "${USE_LANGSMITH_TRACING:-false}"
+      LANGSMITH_API_KEY: "${LANGSMITH_API_KEY:-}"
+      LANGSMITH_PROJECT: "${LANGSMITH_PROJECT:-dat-ia-test}"
+      LANGSMITH_TRACING_SAMPLING_RATE: "${LANGSMITH_TRACING_SAMPLING_RATE:-1.0}"
     volumes:
       # Esto crea una carpeta local llamada .hf_cache y la conecta a la caché del contenedor
       - ./.hf_cache:/app/.cache/huggingface
