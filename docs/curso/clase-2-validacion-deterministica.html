@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 2 · Validación determinística — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 2 de 7</span>
+    <h1>Validación determinística: sqlglot y EXPLAIN</h1>
+    <p class="lede">
+      Antes de gastar una llamada a un LLM juez, hay dos capas casi gratis que capturan los
+      niveles 1 y 2 de error de la Clase 1: parsear el SQL sin ejecutarlo, y pedirle a Postgres
+      un plan de ejecución sin correr la query de verdad.
+    </p>
+
+    <h2>1. El problema</h2>
+    <p>
+      Supón que Gemini alucina una columna que no existe en el esquema recuperado:
+    </p>
+    <div class="code-block">
+      <div class="label">SQL con columna inexistente</div>
+      <pre><code><span class="tok-kw">SELECT</span> carrier_name, on_time_percentage
+<span class="tok-kw">FROM</span> carriers
+<span class="tok-kw">ORDER</span> <span class="tok-kw">BY</span> on_time_percentage <span class="tok-kw">DESC</span> <span class="tok-kw">LIMIT</span> 1;</code></pre>
+    </div>
+    <p>
+      El DDL real define <code>on_time_rate</code>, no <code>on_time_percentage</code>. Hoy ese
+      SQL llega directo a <code>execute_sql</code> (<code>app/main.py:991</code>), Postgres
+      lanza <code>UndefinedColumn</code>, y el usuario recibe el mensaje crudo:
+      <em>"La consulta generada falló al ejecutarse: ..."</em>
+      (<code>app/main.py:1454-1459</code>). No hay reintento ni segunda oportunidad.
+    </p>
+
+    <h2>2. El concepto desde cero</h2>
+
+    <h3>¿Qué es un AST y por qué parsear sin ejecutar?</h3>
+    <p>
+      Un <strong>AST</strong> (árbol de sintaxis abstracta) es la representación estructurada de
+      una sentencia SQL: qué es un <code>SELECT</code>, cuáles son sus columnas, de qué tabla
+      viene, qué condiciones tiene el <code>WHERE</code>. Un parser construye ese árbol sin
+      conectarse a ninguna base de datos — es texto convertido en estructura, nada más.
+    </p>
+    <p>
+      <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a> es
+      una librería Python que parsea SQL de múltiples dialectos (incluido Postgres) a un AST
+      navegable, sin dependencias de red ni de una BD real.
+    </p>
+
+    <div class="code-block">
+      <div class="label">Parsear y detectar sintaxis inválida</div>
+      <pre><code><span class="tok-kw">import</span> sqlglot
+
+<span class="tok-kw">try</span>:
+    tree = sqlglot.parse_one(sql, read=<span class="tok-str">"postgres"</span>)
+<span class="tok-kw">except</span> sqlglot.errors.ParseError <span class="tok-kw">as</span> exc:
+    <span class="tok-kw">return</span> SqlValidation(is_valid=<span class="tok-kw">False</span>, stage=<span class="tok-str">"syntax"</span>, error=<span class="tok-fn">str</span>(exc))</code></pre>
+    </div>
+
+    <h3>Extraer tablas del AST y compararlas contra el esquema recuperado</h3>
+    <p>
+      Una vez parseado, <code>tree.find_all(sqlglot.exp.Table)</code> devuelve cada tabla citada
+      en la query. Dat-IA ya sabe qué tablas son "válidas para esta pregunta": son las que
+      <code>retrieve_ddl_context</code> (<code>app/main.py:615</code>) recuperó — la
+      combinación de <code>suggested_tables</code> del optimizer
+      (<code>app/optimizer/query_optimizer.py:64</code>) y la búsqueda semántica en ChromaDB.
+      Si el SQL cita una tabla fuera de ese conjunto, es alucinación de esquema, no un error de
+      negocio — y se detecta sin tocar Postgres.
+    </p>
+
+    <div class="code-block">
+      <div class="label">Verificar tablas contra el esquema recuperado</div>
+      <pre><code>cited_tables = {t.name <span class="tok-kw">for</span> t <span class="tok-kw">in</span> tree.find_all(sqlglot.exp.Table)}
+unknown = cited_tables - <span class="tok-fn">set</span>(allowed_tables)
+
+<span class="tok-kw">if</span> unknown:
+    <span class="tok-kw">return</span> SqlValidation(
+        is_valid=<span class="tok-kw">False</span>,
+        stage=<span class="tok-str">"tables"</span>,
+        error=<span class="tok-kw">f</span><span class="tok-str">"Tablas no reconocidas: {unknown}"</span>,
+    )</code></pre>
+    </div>
+
+    <h3>Dry-run con EXPLAIN: validar columnas y tipos sin ejecutar</h3>
+    <p>
+      sqlglot no conoce el esquema completo de la base de datos (columnas, tipos, índices) — eso
+      exigiría replicarlo dentro de la app y mantenerlo sincronizado. Postgres ya lo tiene. La
+      forma barata de aprovecharlo sin correr la query real es pedirle un
+      <strong><code>EXPLAIN</code></strong> (nunca <code>EXPLAIN ANALYZE</code>, que sí ejecuta):
+      Postgres construye el plan de ejecución, lo que exige resolver cada tabla, columna y tipo
+      mencionado, y lo hace sin leer una sola fila.
+    </p>
+
+    <div class="code-block">
+      <div class="label">Dry-run con EXPLAIN (usa el sql_database ya existente en app/main.py)</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">dry_run_explain</span>(db: SQLDatabase, sql: <span class="tok-fn">str</span>) -&gt; <span class="tok-fn">str</span> | <span class="tok-kw">None</span>:
+    <span class="tok-com">"""Devuelve None si EXPLAIN pasa, o el mensaje de error de Postgres."""</span>
+    result = db.run_no_throw(<span class="tok-kw">f</span><span class="tok-str">"EXPLAIN {sql}"</span>, fetch=<span class="tok-str">"cursor"</span>)
+    <span class="tok-kw">return</span> result <span class="tok-kw">if</span> <span class="tok-fn">isinstance</span>(result, <span class="tok-fn">str</span>) <span class="tok-kw">else</span> <span class="tok-kw">None</span></code></pre>
+    </div>
+
+    <div class="callout warning">
+      <div class="icon">⚠️</div>
+      <div class="body"><p>
+        <code>db.run_no_throw</code> es el mismo patrón que ya usa <code>execute_sql</code>
+        (<code>app/main.py:1007</code>): devuelve un <code>str</code> con el error en vez de
+        lanzar una excepción. Reutilizar esa convención evita introducir un segundo estilo de
+        manejo de errores en el mismo archivo.
+      </p></div>
+    </div>
+
+    <h3>Degradación cuando no hay base de datos</h3>
+    <p>
+      <code>DATABASE_URL</code> está vacío en <code>.env.example</code>, y
+      <code>sql_database</code> puede quedar en <code>None</code> si la conexión a Supabase falla
+      al arrancar (<code>app/main.py:167-175</code>). El dry-run debe degradarse solo — saltar el
+      paso <code>"dry_run"</code> y quedarse con la validación de sintaxis + tablas — nunca
+      convertir la ausencia de BD en un fallo de validación.
+    </p>
+
+    <h3>Endurecer lo que ya existe: mover las guardas de <code>execute_sql</code></h3>
+    <p>
+      <code>execute_sql</code> (<code>app/main.py:991-1005</code>) ya bloquea sentencias que no
+      son <code>SELECT</code> y el apilado de varias sentencias en una sola consulta:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — guardas actuales dentro de execute_sql</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">execute_sql</span>(db: SQLDatabase, sql: <span class="tok-fn">str</span>, row_limit: <span class="tok-fn">int</span> = 200) -&gt; <span class="tok-fn">dict</span>:
+    stripped = sql.strip().rstrip(<span class="tok-str">";"</span>)
+
+    <span class="tok-kw">if</span> <span class="tok-kw">not</span> re.match(<span class="tok-str">r"(?is)^select\b"</span>, stripped):
+        <span class="tok-kw">return</span> {<span class="tok-str">"error"</span>: <span class="tok-str">"Solo se permiten sentencias SELECT."</span>}
+
+    <span class="tok-kw">if</span> <span class="tok-str">";"</span> <span class="tok-kw">in</span> stripped:
+        <span class="tok-kw">return</span> {<span class="tok-str">"error"</span>: <span class="tok-str">"Solo se permite una sentencia SQL por consulta."</span>}
+
+    result = db.run_no_throw(stripped, fetch=<span class="tok-str">"cursor"</span>)
+    ...</code></pre>
+    </div>
+
+    <p>
+      El problema no es que falten estas guardas — es <strong>dónde</strong> se aplican. Con el
+      juez LLM (Clase 3) y el bucle de reintento (Clase 4) delante de <code>execute_sql</code>,
+      un SQL que nunca fue un <code>SELECT</code> (o que apila dos sentencias) pasaría primero
+      por una llamada completa al juez, y potencialmente por 1–2 regeneraciones, antes de que
+      esta regex lo rechace al final. Es gastar presupuesto de LLM en algo que una regla de
+      microsegundos ya sabía que iba a fallar. Por eso se mueven al validador: es el primer
+      filtro, antes de gastar nada caro. También queda como el único punto de aplicación: si
+      mañana otro camino de ejecución (por ejemplo el nodo <code>execute</code> del grafo de la
+      Clase 6) llamara a <code>db.run_no_throw</code> directamente en vez de pasar por
+      <code>execute_sql</code>, perdería esta protección; si vive en <code>validate_sql</code> —
+      paso obligatorio antes de cualquier ejecución — se aplica una sola vez para cualquier
+      camino.
+    </p>
+
+    <p>Qué cambia al moverlas, no es solo copiar y pegar:</p>
+    <ul>
+      <li><strong>Solo-<code>SELECT</code></strong>: hoy es una regex sobre el string crudo. En
+        el validador ya tenemos el AST parseado (para sacar las tablas), así que conviene usar
+        <code>isinstance(tree, exp.Select)</code> reutilizando ese mismo árbol — gratis, y más
+        robusto que una regex.</li>
+      <li><strong>Anti-stacking (<code>;</code> en el string)</strong>: aquí hay un hallazgo que
+        conviene conocer porque contradice la intuición — <strong>sqlglot no lo detecta
+        solo</strong>. <code>sqlglot.parse_one("SELECT 1; SELECT 2;")</code> no lanza error: lo
+        envuelve silenciosamente en un nodo <code>exp.Block</code> con ambas sentencias adentro
+        (sqlglot es permisivo por diseño, sabe parsear scripts completos). Por eso la guarda
+        explícita de <code>;</code> sigue siendo necesaria, y debe correr <em>antes</em> de
+        invocar <code>sqlglot.parse_one</code>, no después.</li>
+    </ul>
+
+    <div class="callout warning">
+      <div class="icon">⚠️</div>
+      <div class="body"><p>
+        La guarda de <code>;</code> es un chequeo de substring, no de AST — un SQL legítimo con
+        un literal de texto que contenga <code>;</code> (<code>WHERE description = 'a;b'</code>)
+        daría falso positivo. Es una limitación que ya existe hoy en <code>execute_sql</code>
+        sin cambios; se traslada, no se corrige. Corregirla de raíz exigiría contar sentencias
+        reales en el AST, más trabajo del que esta guarda amerita hoy.
+      </p></div>
+    </div>
+
+    <h3>La guarda nueva: exigir <code>LIMIT</code></h3>
+    <p>
+      Esta no es una guarda de seguridad — esa ya la cubre solo-<code>SELECT</code>. Es una
+      guarda de <strong>costo de recursos</strong>, motivada por algo concreto que ya pasa en
+      producción:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py:1012-1014 — el corte a row_limit llega demasiado tarde</div>
+      <pre><code>rows = [<span class="tok-fn">dict</span>(row) <span class="tok-kw">for</span> row <span class="tok-kw">in</span> result.mappings()]
+<span class="tok-kw">return</span> {<span class="tok-str">"rows"</span>: rows[:row_limit]}</code></pre>
+    </div>
+
+    <p>
+      <code>result.mappings()</code> iterado dentro del list comprehension
+      <strong>materializa el cursor completo</strong> en memoria de Python — y solo
+      <em>después</em> <code>[:row_limit]</code> corta a 200. Si el SQL generado no trae
+      <code>LIMIT</code> y la tabla tiene 100 mil filas sin filtro selectivo, Postgres calcula y
+      transmite las 100 mil filas completas, Python construye 100 mil diccionarios, y recién ahí
+      se descartan casi todos.
+    </p>
+
+    <p>
+      Con el AST ya parseado, detectar la ausencia (o el exceso) de <code>LIMIT</code> es gratis:
+    </p>
+
+    <div class="code-block">
+      <div class="label">Leer y ajustar el LIMIT sobre el AST</div>
+      <pre><code>tree.find(exp.Limit)  <span class="tok-com"># None si no hay LIMIT</span>
+
+tree.limit(200)  <span class="tok-com"># añade LIMIT 200 si no existía</span>
+tree.args[<span class="tok-str">"limit"</span>] = exp.Limit(expression=exp.Literal.number(200))  <span class="tok-com"># capar uno mayor a 200</span></code></pre>
+    </div>
+
+    <p>
+      Hay dos formas de resolverlo: <strong>(A)</strong> rechazar el SQL sin <code>LIMIT</code> y
+      devolverlo al bucle de reintento de la Clase 4, o <strong>(B)</strong> auto-inyectar o
+      capar el <code>LIMIT</code> directamente en el AST y reserializar con
+      <code>tree.sql(dialect="postgres")</code>, sin gastar ningún intento de reintento. La
+      opción B es la recomendada: no es una discrepancia semántica que el juez deba opinar, es
+      un ajuste mecánico y determinístico — gastar un intento de LLM en esto desperdiciaría el
+      presupuesto del bucle de reintento en algo que se resuelve con una línea de sqlglot. El
+      valor máximo se alinea con el mismo <code>row_limit=200</code> que ya usa
+      <code>execute_sql</code>, para que el límite se aplique una sola vez, con el mismo valor,
+      en toda la cadena.
+    </p>
+
+    <h2>3. Cómo se integra en Dat-IA</h2>
+    <p>
+      Nuevo módulo <code>app/validation/sql_validator.py</code>, con una única función pública
+      que compone las capas en orden barato → caro:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/validation/sql_validator.py — firma propuesta</div>
+      <pre><code><span class="tok-kw">from</span> dataclasses <span class="tok-kw">import</span> dataclass
+<span class="tok-kw">from</span> typing <span class="tok-kw">import</span> Literal
+
+<span class="tok-kw">@dataclass</span>(frozen=<span class="tok-kw">True</span>)
+<span class="tok-kw">class</span> <span class="tok-fn">SqlValidation</span>:
+    is_valid: <span class="tok-fn">bool</span>
+    stage: Literal[<span class="tok-str">"syntax"</span>, <span class="tok-str">"statement"</span>, <span class="tok-str">"tables"</span>, <span class="tok-str">"dry_run"</span>, <span class="tok-str">"ok"</span>]
+    error: <span class="tok-fn">str</span>
+
+<span class="tok-kw">def</span> <span class="tok-fn">validate_sql</span>(
+    sql: <span class="tok-fn">str</span>,
+    allowed_tables: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>],
+    db: SQLDatabase | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+) -&gt; SqlValidation:
+    <span class="tok-com"># 1. anti-stacking ";" en el string — antes de parsear, sqlglot no lo detecta solo</span>
+    <span class="tok-com"># 2. sqlglot.parse_one → captura errores de sintaxis</span>
+    <span class="tok-com"># 3. isinstance(tree, exp.Select) — reemplaza la regex de solo-SELECT</span>
+    <span class="tok-com"># 4. comparar tablas citadas (excluyendo alias de CTE) contra allowed_tables</span>
+    <span class="tok-com"># 5. exigir/capar LIMIT sobre el AST (recomendado: auto-inyectar, no rechazar)</span>
+    <span class="tok-com"># 6. si db is not None: EXPLAIN como dry-run</span>
+    ...</code></pre>
+    </div>
+
+    <h2>4. Errores comunes</h2>
+    <ul>
+      <li><strong>Mantener un esquema paralelo en Python.</strong> No repliques columnas y tipos
+        a mano para "validar sin BD" — es exactamente el tipo de estado duplicado que se
+        desincroniza. Para eso está el dry-run con <code>EXPLAIN</code>.</li>
+      <li><strong>Usar <code>EXPLAIN ANALYZE</code> por error.</strong> Esa variante sí ejecuta la
+        query. El dry-run debe ser <code>EXPLAIN</code> a secas.</li>
+      <li><strong>Romper el flujo cuando no hay BD.</strong> El validador debe reportar
+        <code>stage="dry_run"</code> como no aplicable, no como fallo, cuando <code>db is
+        None</code> — igual que <code>/ready</code> ya reporta <code>"not_configured"</code>
+        (<code>app/main.py:1084-1094</code>) sin romper el resto de la API.</li>
+      <li><strong>Confundir "tabla no reconocida" con "tabla inexistente en la BD real".</strong>
+        Aquí se valida contra el conjunto que <em>Dat-IA decidió que era relevante</em> para esta
+        pregunta, no contra el catálogo completo de la base de datos — una tabla real pero fuera
+        de contexto también debe rechazarse, porque señala que el LLM se salió del DDL que se le
+        dio.</li>
+    </ul>
+
+    <h2>5. Checklist de implementación</h2>
+    <ul class="checklist">
+      <li><span class="box"></span> Añadir <code>sqlglot</code> a <code>pyproject.toml</code>
+        (<code>uv add sqlglot</code>).</li>
+      <li><span class="box"></span> Crear <code>app/validation/sql_validator.py</code> con
+        <code>SqlValidation</code> y <code>validate_sql(...)</code>.</li>
+      <li><span class="box"></span> Mover las guardas de solo-<code>SELECT</code> (ahora vía
+        <code>isinstance(tree, exp.Select)</code>) y anti-stacking (chequeo de <code>;</code>,
+        antes de parsear) desde <code>execute_sql</code> hacia el validador.</li>
+      <li><span class="box"></span> Añadir la guarda de <code>LIMIT</code>: auto-inyectar
+        <code>tree.limit(200)</code> si falta, o capar el existente si excede 200.</li>
+      <li><span class="box"></span> Implementar <code>dry_run_explain</code> reutilizando
+        <code>db.run_no_throw</code>, con manejo explícito de <code>db is None</code>.</li>
+      <li><span class="box"></span> Tests: SQL sintácticamente inválido, SQL con tabla fuera de
+        <code>allowed_tables</code>, SQL con columna inexistente (vía dry-run con SQLite o mock),
+        y el caso <code>db=None</code>.</li>
+    </ul>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué sqlglot no puede detectar una columna inexistente por sí
+          solo? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque sqlglot solo conoce la estructura sintáctica del SQL (el AST),
+          no el esquema real de la base de datos. No sabe qué columnas existen en
+          <code>carriers</code> a menos que se le enseñe ese esquema aparte. Por eso se delega
+          esa verificación a Postgres mediante <code>EXPLAIN</code>, que sí conoce el esquema
+          real.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Qué diferencia hay entre <code>EXPLAIN</code> y <code>EXPLAIN
+          ANALYZE</code>, y cuál usamos aquí? <span class="chevron">⌄</span></button>
+        <div class="quiz-a"><code>EXPLAIN</code> construye el plan de ejecución sin leer datos
+          reales — valida sintaxis, tablas, columnas y tipos. <code>EXPLAIN ANALYZE</code>
+          además ejecuta la query de verdad para medir tiempos reales. Para un dry-run se usa
+          siempre <code>EXPLAIN</code> a secas.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">Si <code>DATABASE_URL</code> no está configurada, ¿qué debe
+          devolver <code>validate_sql</code>? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Debe completar las etapas de sintaxis y tablas normalmente, y omitir
+          la etapa de dry-run sin marcarla como error — igual que <code>/ready</code> reporta
+          "no configurada" sin romper el resto de la API. El validador nunca debe fallar porque
+          falte infraestructura opcional.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué no basta con dejar las guardas de solo-<code>SELECT</code>
+          y anti-stacking donde están hoy, dentro de <code>execute_sql</code>?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque con el juez LLM y el bucle de reintento delante de
+          <code>execute_sql</code>, un SQL que nunca fue un <code>SELECT</code> pasaría primero
+          por una llamada completa al juez y posibles regeneraciones antes de ser rechazado por
+          una regla trivial al final — desperdiciando presupuesto de LLM en algo que un chequeo
+          de microsegundos ya sabía que iba a fallar. Moverlas al validador las convierte además
+          en el único punto de aplicación para cualquier camino de ejecución futuro.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué no se puede confiar en que <code>sqlglot.parse_one</code>
+          detecte por sí solo el apilado de sentencias (<code>SELECT 1; SELECT 2;</code>)?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque sqlglot es permisivo por diseño: en vez de lanzar un error,
+          envuelve silenciosamente varias sentencias en un nodo <code>exp.Block</code>. La
+          guarda explícita de <code>;</code> sigue siendo necesaria y debe correr antes de
+          invocar el parser, no depender de que este falle.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué conviene auto-inyectar o capar el <code>LIMIT</code> en
+          el AST en vez de rechazar el SQL y mandarlo al bucle de reintento?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque la ausencia de <code>LIMIT</code> no es una discrepancia
+          semántica que el juez deba evaluar — es un ajuste mecánico y determinístico. Gastar un
+          intento del bucle de reintento (que ya tiene un máximo de 2) en algo que se resuelve
+          con una línea de sqlglot desperdicia ese presupuesto en un caso sin ambigüedad de
+          negocio.</div>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a href="clase-1-por-que-falla.html">
+        <span class="dir">← Anterior</span>
+        <span class="title">Clase 1: Por qué falla sin validación</span>
+      </a>
+      <a class="next" href="clase-3-llm-as-a-judge.html">
+        <span class="dir">Siguiente →</span>
+        <span class="title">Clase 3: LLM como juez</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>

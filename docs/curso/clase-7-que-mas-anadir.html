@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 7 · Qué más añadir — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 7 de 7</span>
+    <h1>Qué más añadir: roadmap priorizado</h1>
+    <p class="lede">
+      Con el validador, el juez, el bucle de reintento, el guardrail y el agente conversacional
+      (Clases 2–6), el workflow objetivo del diagrama de arquitectura del equipo queda cubierto
+      en su mayor parte. Esto es lo siguiente, ordenado por relación esfuerzo/impacto.
+    </p>
+
+    <h2>Alto impacto, bajo esfuerzo</h2>
+
+    <div class="card">
+      <h3>Feedback 👍 / 👎 del usuario sobre la memoria</h3>
+      <p>
+        La memoria V2 hoy decide <code>validated</code> solo con señales automáticas (juez +
+        ejecución + guardrail, tras la Clase 4). Un simple endpoint
+        <code>POST /memory/v2/{'{memory_id}'}/feedback</code> que ajuste
+        <code>validated</code> según lo que el usuario de negocio confirma añade una señal humana
+        que ningún LLM puede replicar: si la respuesta era o no lo que realmente necesitaba,
+        independientemente de si el SQL "se veía" correcto.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Explicación del SQL ejecutado (auditoría)</h3>
+      <p>
+        Un endpoint o campo que traduzca el SQL final a una explicación en español de qué tablas
+        usó y qué filtros aplicó — reutilizando el mismo <code>answer_llm</code> ya inicializado
+        en el <code>lifespan</code> — ayuda a que un analista de negocio confíe en la respuesta
+        sin tener que leer SQL.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Sugerencias de follow-up</h3>
+      <p>
+        El <code>OptimizedQuery</code> estructurado (<code>intent</code>, <code>metrics</code>,
+        <code>group_by</code>) ya contiene suficiente información para sugerir la siguiente
+        pregunta lógica ("¿quieres verlo desglosado por mes?") sin ningún costo adicional de LLM
+        — son reglas sobre campos que ya se calculan hoy.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Caché exacto por hash de pregunta</h3>
+      <p>
+        Antes de correr todo el pipeline (shield, optimizer, retrieval, generación), un hash de
+        la pregunta normalizada contra un caché simple evita repetir el trabajo completo para
+        preguntas idénticas repetidas en poco tiempo — distinto de la memoria semántica V2, que
+        ya cubre preguntas <em>similares</em> pero no exactas.
+      </p>
+    </div>
+
+    <h2>Alto impacto, esfuerzo medio</h2>
+
+    <div class="card">
+      <h3>LangSmith: trazas por nodo + dataset de evaluación offline</h3>
+      <p>
+        El diagrama de arquitectura del equipo ya contempla LangSmith en el bloque de
+        "Observabilidad y monitoreo". Con LangGraph (Clase 6) cada nodo queda trazado
+        automáticamente si se configura <code>LANGCHAIN_TRACING_V2</code> y las variables de
+        LangSmith — no requiere instrumentación manual adicional. Además, los benchmarks que ya
+        existen en <code>reports/</code>
+        (<code>query_memory_v2_operation_benchmark.json</code>,
+        <code>query_memory_v2_threshold_calibration.json</code>) son la base natural de un
+        dataset de evaluación offline: casos de pregunta → SQL esperado que corren contra cada
+        cambio de prompt antes de desplegarlo.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Agente de visualización</h3>
+      <p>
+        El bloque "Parseo y Evaluación" del README del proyecto menciona explícitamente "creación
+        de gráficos automáticos". <code>format_result_table</code>
+        (<code>app/formatting/result_formatter.py</code>) ya clasifica columnas por tipo
+        (<code>percentage</code>, <code>date</code>, <code>decimal</code>, etc.) — esa
+        clasificación, cruzada con <code>optimized_query.operation</code> (por ejemplo
+        <code>"temporal_trend"</code> → línea, <code>"rank_desc"</code> → barras horizontales),
+        es suficiente para elegir un tipo de gráfico sin necesitar otro LLM.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Streaming con Server-Sent Events</h3>
+      <p>
+        LangGraph expone <code>.astream()</code> de forma nativa sobre el grafo compilado en la
+        Clase 6. Un endpoint <code>/chat/stream</code> que vaya emitiendo eventos por nodo
+        (“validando SQL…”, “ejecutando…”) mejora la percepción de latencia sin cambiar la lógica
+        interna.
+      </p>
+    </div>
+
+    <h2>Infraestructura</h2>
+
+    <div class="card">
+      <h3>Presupuesto de tokens y timeout por nodo</h3>
+      <p>
+        Con más LLMs en el camino crítico (generador, optimizer, juez, síntesis, reescritura de
+        preguntas), un timeout explícito por nodo del grafo evita que una sola llamada lenta
+        cuelgue toda la conversación — hoy no existe ningún timeout configurado en las llamadas a
+        Gemini dentro de <code>app/main.py</code>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Métricas a Grafana</h3>
+      <p>
+        El mismo diagrama de arquitectura menciona Grafana junto a LangSmith. Métricas operativas
+        (tasa de rechazo del juez, intentos promedio antes de éxito, latencia por nodo) son un
+        complemento natural a las trazas de LangSmith — LangSmith explica <em>por qué</em> falló
+        un caso puntual; Grafana muestra la tendencia agregada en el tiempo.
+      </p>
+    </div>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué el feedback 👍/👎 del usuario es una señal que ningún
+          LLM (ni el juez de la Clase 3) puede reemplazar? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque el juez LLM verifica que el SQL implemente correctamente la
+          estructura detectada por el optimizer, pero no puede saber si esa estructura realmente
+          capturó lo que el usuario de negocio necesitaba en un sentido más amplio (por ejemplo,
+          si la definición de "ingreso" que usó coincide con la que maneja el área de finanzas).
+          Esa validación solo la puede dar una persona.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué LangSmith se integra "gratis" al adoptar LangGraph en la
+          Clase 6? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque LangGraph traza automáticamente cada nodo del grafo cuando se
+          configuran las variables de entorno de LangSmith — no hace falta instrumentar
+          manualmente cada función con logging de trazas; el grafo ya expone su ejecución paso a
+          paso de forma nativa.</div>
+      </div>
+    </div>
+
+    <div class="callout success">
+      <div class="icon">✅</div>
+      <div class="body"><p>
+        Con las Clases 1–6 implementadas, los tres huecos de la portada quedan cerrados: hay
+        validación antes de ejecutar, la memoria solo se refuerza con SQL verificado, y la
+        interacción es conversacional con estado persistente. Este roadmap es para después de esa
+        base, no un requisito para completarla.
+      </p></div>
+    </div>
+
+    <div class="class-nav">
+      <a href="clase-6-langgraph-conversacional.html">
+        <span class="dir">← Anterior</span>
+        <span class="title">Clase 6: Agente con LangGraph</span>
+      </a>
+      <a class="next" href="index.html">
+        <span class="dir">Volver al inicio →</span>
+        <span class="title">Índice del curso</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>
