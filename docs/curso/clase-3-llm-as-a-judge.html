@@ -59,6 +59,118 @@
       mirar si aparece <code>AVG</code> o <code>SUM</code>.
     </p>
 
+    <h3>De dónde viene la idea: el paper que la bautizó</h3>
+    <p>
+      El término <strong>"LLM-as-a-judge"</strong> se formaliza en
+      <a href="https://arxiv.org/abs/2306.05685" target="_blank" rel="noopener">Zheng et al.,
+      "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena" (NeurIPS 2023, track Datasets and
+      Benchmarks)</a>. El problema que resuelven: evaluar chatbots en tareas abiertas (seguir
+      instrucciones, redactar, razonar) es caro con humanos y las métricas clásicas de NLG
+      (<code>BLEU</code>, <code>ROUGE</code>) miden solapamiento léxico contra una respuesta
+      "gold" — inútiles cuando no existe una única respuesta correcta o cuando lo que se busca es
+      calidad de instrucción-seguida, no parecido de texto. Su propuesta: usar un LLM fuerte
+      (GPT-4 en el paper) como <em>proxy</em> del juicio humano. Lo validaron midiendo la tasa de
+      acuerdo entre GPT-4 y humanos (~80-85%), comparable al acuerdo <em>entre humanos distintos</em>
+      evaluando lo mismo — de ahí que el método se considerara suficientemente confiable para
+      reemplazar benchmarks estáticos.
+    </p>
+    <p>
+      El paper formaliza dos modos de juicio, y es útil ubicar cuál usa Dat-IA:
+    </p>
+    <table>
+      <thead><tr><th>Modo</th><th>Qué hace</th><th>¿Lo usa Dat-IA?</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Pairwise comparison</strong></td>
+          <td>Se muestran dos respuestas (A y B) y el juez decide cuál es mejor, o empate.</td>
+          <td>No — no hay dos SQL candidatos para comparar, solo uno a validar.</td>
+        </tr>
+        <tr>
+          <td><strong>Single-answer grading</strong></td>
+          <td>Se evalúa una sola respuesta contra una rúbrica y se emite un puntaje o veredicto.</td>
+          <td>Sí — <code>SqlVerdict</code> es exactamente esto, con la rúbrica sacada de
+            <code>OptimizedQuery</code> en vez de una rúbrica genérica en texto.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      El paper también documenta, con nombre propio, los mismos sesgos listados más abajo en esta
+      clase (posición, verbosidad, self-enhancement) — no son intuiciones nuestras, son hallazgos
+      empíricos replicados desde entonces en decenas de estudios de evaluación con LLM.
+    </p>
+    <p>
+      Antes de ese paper ya existían intentos relacionados que vale la pena conocer porque cada
+      uno aportó una pieza del diseño que terminamos usando:
+    </p>
+    <ul>
+      <li><strong>GPTScore</strong> (Fu et al., 2023) — usaba la log-probabilidad que un LLM le
+        asigna a un texto como proxy de su calidad. Antecesor conceptual, pero frágil: depende de
+        tener acceso a probabilidades token a token, algo que las APIs comerciales no siempre
+        exponen.</li>
+      <li><strong>G-Eval</strong> (Liu et al., 2023) — el que más se parece a lo que hace Dat-IA:
+        pide al LLM razonar paso a paso (<em>chain-of-thought</em>) antes de rellenar un formulario
+        de puntajes ("form-filling"), en vez de responder directo con un número. Esa es la razón
+        por la que <code>SqlVerdict</code> pide <code>issues</code> <strong>antes</strong> que
+        <code>is_valid</code>: el mismo principio de "razona antes de puntuar" de G-Eval.</li>
+    </ul>
+
+    <h3>Otras formas de evaluar generación (y por qué esta es la que usamos)</h3>
+    <p>
+      Un juez LLM prompteado en tiempo de inferencia no es la única opción para verificar salidas.
+      Vale la pena conocer las alternativas para justificar por qué esta es la más simple que
+      cumple el objetivo:
+    </p>
+    <table>
+      <thead><tr><th>Enfoque</th><th>Cómo funciona</th><th>Por qué no se usa (todavía) en Dat-IA</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Métricas de NLG (<code>BLEU</code>, <code>ROUGE</code>, <code>BERTScore</code>)</td>
+          <td>Comparan solapamiento léxico o semántico contra una respuesta de referencia.</td>
+          <td>No existe un SQL "gold" único por pregunta — dos queries con sintaxis distinta
+            pueden ser igualmente correctas.</td>
+        </tr>
+        <tr>
+          <td>Reward model / clasificador afinado (el mismo principio detrás de RLHF)</td>
+          <td>Un modelo pequeño entrenado con datos de preferencia humana para predecir "bueno/malo".</td>
+          <td>Requiere dataset propio de preferencias etiquetadas y un ciclo de entrenamiento —
+            coste de entrada mucho mayor que prompt-engineering sobre un LLM ya disponible.</td>
+        </tr>
+        <tr>
+          <td>Jueces open-source afinados para evaluar (<strong>Prometheus</strong>,
+            <strong>Prometheus-2</strong>, Kim et al. 2023-2024; <strong>JudgeLM</strong>)</td>
+          <td>Modelos entrenados específicamente para imitar el juicio de GPT-4 a menor costo y
+            corriendo localmente.</td>
+          <td>Añade una dependencia de infraestructura (servir otro modelo) que hoy no se justifica
+            con el volumen de Dat-IA; queda como opción de Clase 7 si el costo del juez con Gemini
+            se vuelve un problema.</td>
+        </tr>
+        <tr>
+          <td><strong>Panel of LLM evaluators / jury</strong> (PoLL, Verga et al. 2024)</td>
+          <td>Varios jueces más pequeños y baratos votan, en vez de uno solo grande y caro; se
+            agrega por mayoría. Reduce el sesgo de un único modelo y, según el paper, iguala o
+            supera a un juez único tipo GPT-4 con menor costo.</td>
+          <td>Válido como extensión futura (Clase 7) si <code>SqlVerdict</code> con un solo juez
+            demuestra falsos positivos/negativos sistemáticos en producción.</td>
+        </tr>
+        <tr>
+          <td>Frameworks de evaluación de RAG (<strong>RAGAS</strong>, DeepEval, TruLens,
+            evaluadores de LangSmith)</td>
+          <td>Bibliotecas que empaquetan jueces LLM ya armados con métricas estándar (fidelidad,
+            relevancia de contexto, groundedness) para pipelines RAG.</td>
+          <td>Están pensados para RAG de texto libre (pregunta → contexto → respuesta en
+            lenguaje natural), no para verificar SQL contra una estructura de negocio como
+            <code>OptimizedQuery</code>; construir <code>SqlVerdict</code> a medida es más simple
+            que adaptar un framework genérico a este caso puntual.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      La elección de Dat-IA — un único LLM prompteado con salida estructurada y rúbrica cerrada —
+      es la opción más barata de las que dan control fino sobre <em>qué</em> se verifica. Se deja
+      documentado el resto porque son la ruta natural de escalamiento si el volumen de preguntas o
+      la exigencia de precisión crecen (ver Clase 7).
+    </p>
+
     <h3>La ventaja que ya tiene Dat-IA: no juzgar en abstracto</h3>
     <p>
       La forma ingenua de un juez es preguntarle al LLM "¿este SQL responde bien la pregunta?" en
@@ -210,7 +322,29 @@ verdict: SqlVerdict = judge_llm.with_structured_output(SqlVerdict).invoke(judge_
           en el esquema Pydantic? <span class="chevron">⌄</span></button>
         <div class="quiz-a">Porque obliga al modelo a enumerar evidencia concreta antes de
           concluir, reduciendo la complacencia (aprobar sin analizar) y dejando un rastro
-          auditable que además sirve como feedback textual para el reintento de la Clase 4.</div>
+          auditable que además sirve como feedback textual para el reintento de la Clase 4. Es el
+          mismo principio de "razonar antes de puntuar" que introdujo G-Eval (Liu et al., 2023).</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">Según el paper de Zheng et al. (2023) que formalizó el término,
+          ¿por qué un juez LLM es preferible a métricas como BLEU/ROUGE para evaluar respuestas
+          abiertas? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">BLEU/ROUGE miden solapamiento léxico contra una única respuesta de
+          referencia, lo cual falla cuando no existe una sola forma correcta de responder (dos SQL
+          con sintaxis distinta pueden ser igualmente válidos). Un juez LLM evalúa contra criterios
+          de calidad, no contra un texto fijo, y el paper midió que su tasa de acuerdo con humanos
+          (~80-85%) es comparable al acuerdo entre humanos distintos evaluando lo mismo.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q"><code>SqlVerdict</code> usa un solo juez con salida estructurada.
+          ¿Qué alternativa existe si ese juez único empieza a mostrar sesgos sistemáticos en
+          producción, y qué le costaría adoptarla? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Un "panel of LLM evaluators" (PoLL, Verga et al. 2024): varios jueces
+          más baratos votan y se agrega por mayoría en vez de confiar en un único modelo grande.
+          Reduce el sesgo de un modelo individual sin necesariamente subir el costo. El cambio es
+          incremental sobre <code>sql_judge.py</code> — se reemplaza una llamada a
+          <code>judge_llm.with_structured_output</code> por varias en paralelo y una función de
+          agregación por mayoría sobre <code>is_valid</code>.</div>
       </div>
     </div>
 
