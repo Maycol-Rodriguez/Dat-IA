@@ -56,6 +56,7 @@ def test_ask_returns_prototype_response() -> None:
     assert response.status_code == 200
     assert body["status"] == "prototype"
     assert body["sql"] == "SELECT 1 AS prototype_result;"
+    assert "tool_logs" in body
 
 
 def test_ask_rejects_empty_question() -> None:
@@ -1004,7 +1005,12 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
             ddl="CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
         )
 
-    def fake_build_rag_response(question: str, ddl: str):
+    def fake_build_rag_response(
+        question: str,
+        ddl: str,
+        memory_examples=None,
+        tool_logs=None,
+    ):
         captured["generation_question"] = question
         captured["ddl"] = ddl
 
@@ -1087,8 +1093,9 @@ def _mock_query_json_memory_pipeline(
         question: str,
         ddl: str,
         memory_examples=None,
+        tool_logs=None,
     ):
-        _ = question, ddl, memory_examples
+        _ = question, ddl, memory_examples, tool_logs
         return main_module.RAGResponse(
             sql=rag_sql,
             sources=rag_sources,

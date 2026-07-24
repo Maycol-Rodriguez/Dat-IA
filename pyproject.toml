@@ -35,6 +35,7 @@ dependencies = [
     "sqlalchemy>=2.0.50",
     "jiter>=0.6.0",
     "babel>=2.17,<3",
+    "streamlit>=1.60.0",
 ]
 
 [dependency-groups]

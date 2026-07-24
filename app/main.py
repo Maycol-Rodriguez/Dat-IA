@@ -4,7 +4,7 @@ import json
 import os
 import re
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 from typing import Literal
 
 import chromadb
@@ -235,6 +235,7 @@ class RAGResponse(BaseModel):
     sources: str
     confidence_note: str
     status: str
+    tool_logs: list[dict[str, Any]] | None = None
 
 class SHIELDResponse(BaseModel):
     sql: str
@@ -248,6 +249,7 @@ class IngestResponse(BaseModel):
     chunks_indexed: int
     collection: str
     chunks: list
+    tool_logs: list[dict[str, Any]] | None = None
 
 class HealthResponse(BaseModel):
     status: Literal["ok"]
@@ -450,6 +452,28 @@ def _memory_v2_metadata_to_result(
     )
 
 
+def _append_tool_log(
+    tool_logs: list[dict[str, Any]] | None,
+    *,
+    name: str,
+    arguments: dict[str, Any],
+    result: Any,
+    is_error: bool = False,
+) -> None:
+    """Agrega un registro de herramienta para la UI."""
+    if tool_logs is None:
+        return
+
+    tool_logs.append(
+        {
+            "name": name,
+            "arguments": arguments,
+            "result": result,
+            "is_error": is_error,
+        }
+    )
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Genera embeddings con gemini-embedding-2 vía LangChain (batching interno)."""
     return embeddings_model.embed_documents(texts)
@@ -617,6 +641,7 @@ def retrieve_ddl_context(
     query: str,
     suggested_tables: list[str] | None = None,
     distance_threshold: float = 0.7,
+    tool_logs: list[dict[str, Any]] | None = None,
 ) -> EmbeddingsResponse:
     """Combina tablas sugeridas exactas y recuperación semántica."""
     exact = _get_suggested_table_embeddings(
@@ -646,6 +671,20 @@ def retrieve_ddl_context(
     # Conserva compatibilidad con colecciones simuladas
     # que solo implementan búsqueda semántica.
     if not can_lookup_by_name:
+        _append_tool_log(
+            tool_logs,
+            name="retrieve_ddl_context",
+            arguments={
+                "query": query,
+                "suggested_tables": suggested_tables or [],
+                "distance_threshold": distance_threshold,
+            },
+            result={
+                "tables": semantic.tabla,
+                "ddl_preview": semantic.ddl[:400],
+                "distance": semantic.distance,
+            },
+        )
         return semantic
 
     tables = list(exact.tabla)
@@ -890,6 +929,7 @@ def build_rag_response(
     question: str,
     ddl: str,
     memory_examples: list[dict] | None = None,
+    tool_logs: list[dict[str, Any]] | None = None,
 ) -> RAGResponse:
     """
     Construye el prompt de augmentation y llama al LLM (LangChain) con
@@ -930,6 +970,20 @@ def build_rag_response(
 
     if "i do not know" in parsed.sql.lower():
         parsed = parsed.model_copy(update={"sources": ""})
+
+    _append_tool_log(
+        tool_logs,
+        name="build_rag_response",
+        arguments={
+            "question": question,
+            "ddl_length": len(ddl),
+        },
+        result={
+            "sql": parsed.sql,
+            "sources": parsed.sources,
+            "status": parsed.status,
+        },
+    )
 
     return parsed
 
@@ -1059,13 +1113,31 @@ async def ingest_document(
     # -- Indexación de texto (MD/TXT) --
     global text_collection
 
+    tool_logs: list[dict[str, Any]] = []
+
+    if file is None:
+        _append_tool_log(
+            tool_logs,
+            name="ingest_document",
+            arguments={"filename": None},
+            result={"error": "No se recibió ningún archivo."},
+            is_error=True,
+        )
+        raise HTTPException(400, "No se recibió ningún archivo.")
+
     raw = await file.read()
     content = json.loads(raw.decode("utf-8"))
     chunks = cargar_tablas(content)
 
     if not chunks:
+        _append_tool_log(
+            tool_logs,
+            name="ingest_document",
+            arguments={"filename": file.filename},
+            result={"error": "No se encontraron tablas."},
+            is_error=True,
+        )
         raise HTTPException(400, "No se encontraron tablas.")
-
 
     # Embed e indexar
     batch_size = 50
@@ -1078,7 +1150,20 @@ async def ingest_document(
             ids       = [chunk["id"] for chunk in batch],
         )
 
-    return IngestResponse(status="ok", chunks_indexed=len(chunks), collection="ddls", chunks=chunks)
+    _append_tool_log(
+        tool_logs,
+        name="ingest_document",
+        arguments={"filename": file.filename, "chunks": len(chunks)},
+        result={"indexed": len(chunks), "collection": "ddls"},
+    )
+
+    return IngestResponse(
+        status="ok",
+        chunks_indexed=len(chunks),
+        collection="ddls",
+        chunks=chunks,
+        tool_logs=tool_logs,
+    )
 
 
 
@@ -1209,9 +1294,22 @@ def memory_v2_search(
 @app.post("/query/json", response_model=RAGResponse)
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
+    tool_logs: list[dict[str, Any]] = []
+
     if text_collection is None or text_collection._collection.count() == 0:
-        return RAGResponse(sql="SELECT 1 AS prototype_result;", status="prototype",
-                           sources="",confidence_note="")
+        _append_tool_log(
+            tool_logs,
+            name="query_json",
+            arguments={"question": request.question},
+            result={"status": "prototype", "reason": "No hay colecciones indexadas"},
+        )
+        return RAGResponse(
+            sql="SELECT 1 AS prototype_result;",
+            status="prototype",
+            sources="",
+            confidence_note="",
+            tool_logs=tool_logs,
+        )
 
     try:
         optimized_query = optimize_query(
@@ -1219,7 +1317,24 @@ async def query_json(request: QueryRequest):
             llm=optimizer_llm,
         )
     except ValueError as exc:
+        _append_tool_log(
+            tool_logs,
+            name="optimize_query",
+            arguments={"question": request.question},
+            result={"error": str(exc)},
+            is_error=True,
+        )
         raise HTTPException(422, str(exc)) from exc
+
+    _append_tool_log(
+        tool_logs,
+        name="optimize_query",
+        arguments={"question": request.question},
+        result={
+            "normalized_question": optimized_query.normalized_question,
+            "suggested_tables": optimized_query.suggested_tables,
+        },
+    )
 
     query_for_generation = optimized_query.normalized_question
 
@@ -1232,16 +1347,25 @@ async def query_json(request: QueryRequest):
             optimized_query.suggested_tables
         ),
         distance_threshold=0.7,
+        tool_logs=tool_logs,
     )
 
     if resp.ddl == "":
+        _append_tool_log(
+            tool_logs,
+            name="query_json",
+            arguments={"question": request.question},
+            result={"error": "No se encontró ninguna tabla relevante."},
+            is_error=True,
+        )
         raise HTTPException(422, "No se encontró ninguna tabla relevante.")
-    
+
     print(f"Found table: {resp.ddl}")
 
     rag_response = build_rag_response(
         query_for_generation,
         resp.ddl,
+        tool_logs=tool_logs,
     )
 
     if (
@@ -1258,6 +1382,7 @@ async def query_json(request: QueryRequest):
             execution_status="not_executed",
         )
 
+    rag_response.tool_logs = tool_logs
     return rag_response
 
 
