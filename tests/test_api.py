@@ -1005,7 +1005,7 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
             ddl="CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
         )
 
-    def fake_build_rag_response(question: str, ddl: str):
+    def fake_build_rag_response(question: str, ddl: str, tool_logs=None):
         captured["generation_question"] = question
         captured["ddl"] = ddl
 
