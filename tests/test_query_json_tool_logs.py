@@ -68,4 +68,4 @@ def test_query_json_returns_tool_logs(monkeypatch) -> None:
 
     assert response.status == "success"
     assert response.tool_logs is not None
-    assert any(log["name"] == "optimize_query" for log in response.tool_logs)
+    assert any(log.get("name") == "optimize_query" for log in response.tool_logs)

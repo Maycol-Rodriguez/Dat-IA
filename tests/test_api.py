@@ -56,6 +56,7 @@ def test_ask_returns_prototype_response() -> None:
     assert response.status_code == 200
     assert body["status"] == "prototype"
     assert body["sql"] == "SELECT 1 AS prototype_result;"
+    assert "tool_logs" in body
 
 
 def test_ask_rejects_empty_question() -> None:
