@@ -26,6 +26,12 @@ from app.memory.query_memory_v2 import (
     search_query_memory_v2_for_record,
     upsert_query_memory_v2,
 )
+from app.observability import (
+    build_trace_metadata,
+    build_trace_tags,
+    langsmith_connection_status,
+    traceable_stage,
+)
 
 from app.optimizer.query_optimizer import OptimizedQuery, optimize_query
 
@@ -42,6 +48,8 @@ from transformers import (
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 DATABASE_URL = os.environ.get("DATABASE_URL")
+APP_ENV = os.environ.get("APP_ENV", "test")
+APP_VERSION = "0.1.0"
 MODEL = "gemini-3.1-flash-lite-preview"
 EMBED_MODEL = "gemini-embedding-2"
 CHROMA_PATH = "./chroma_db"
@@ -53,6 +61,8 @@ CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 CF_API_KEY = os.environ.get("CLOUDFLARE_API_KEY", "")
 CF_MODEL = "@cf/qwen/qwen2.5-coder-32b-instruct"
 CF_BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/v1"
+SQL_GENERATION_PROVIDER = "cloudflare" if USE_CLOUDFLARE_LLM else "google"
+SQL_GENERATION_MODEL = CF_MODEL if USE_CLOUDFLARE_LLM else MODEL
 
 # Estos se inicializan en el lifespan para no bloquear el import
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
@@ -72,6 +82,43 @@ shield_model = None
 sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
 
 
+def _trace_metadata(
+    *,
+    endpoint: str | None = None,
+    operation: str | None = None,
+    llm_provider: str | None = None,
+    llm_model: str | None = None,
+    embedding_model: str | None = None,
+) -> dict:
+    """Construye metadata estática común para las etapas de Dat-IA."""
+    return build_trace_metadata(
+        environment=APP_ENV,
+        app_version=APP_VERSION,
+        endpoint=endpoint,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
+        operation=operation,
+    )
+
+
+def _trace_tags(
+    *,
+    endpoint: str | None = None,
+    operation: str | None = None,
+    llm_provider: str | None = None,
+) -> list[str]:
+    """Construye tags de baja cardinalidad para navegar las trazas."""
+    extra = [f"stage:{operation}"] if operation else None
+
+    return build_trace_tags(
+        environment=APP_ENV,
+        endpoint=endpoint,
+        llm_provider=llm_provider,
+        extra=extra,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lifespan: inicialización al arrancar la app
 # ---------------------------------------------------------------------------
@@ -84,6 +131,9 @@ async def lifespan(app: FastAPI):
     global chroma_client, text_collection, image_collection
     global query_memory_v2_collection
     global shield_tokenizer, shield_model, sql_database
+
+    langsmith_status = langsmith_connection_status()
+    print(f"[startup] LangSmith tracing: {langsmith_status}.")
 
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no encontrada en variables de entorno.")
@@ -233,7 +283,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Dat-IA API",
-    version="0.1.0",
+    version=APP_VERSION,
     description="API inicial para el agente analista de datos Dat-IA.",
     lifespan=lifespan,
 )
@@ -506,6 +556,15 @@ def cargar_tablas(tablas: list) -> list[dict]:
     ]
 
 
+@traceable_stage(
+    name="dat-ia.retrieval.semantic-ddl",
+    run_type="retriever",
+    metadata=_trace_metadata(
+        operation="semantic_ddl_retrieval",
+        embedding_model=EMBED_MODEL,
+    ),
+    tags=_trace_tags(operation="semantic_ddl_retrieval"),
+)
 def query_embeddings(
     collection, query: str, distance_threshold: float = 0.7
 ) -> EmbeddingsResponse:
@@ -632,6 +691,15 @@ def _get_suggested_table_embeddings(
     )
 
 
+@traceable_stage(
+    name="dat-ia.retrieval.ddl-context",
+    run_type="retriever",
+    metadata=_trace_metadata(
+        operation="ddl_context_retrieval",
+        embedding_model=EMBED_MODEL,
+    ),
+    tags=_trace_tags(operation="ddl_context_retrieval"),
+)
 def retrieve_ddl_context(
     collection,
     query: str,
@@ -772,6 +840,15 @@ def _build_query_memory_v2_record(
     )
 
 
+@traceable_stage(
+    name="dat-ia.memory.search-examples",
+    run_type="retriever",
+    metadata=_trace_metadata(
+        operation="query_memory_search",
+        embedding_model=EMBED_MODEL,
+    ),
+    tags=_trace_tags(operation="query_memory_search"),
+)
 def _search_query_memory_v2_examples(
     optimized_query: OptimizedQuery,
     *,
@@ -829,6 +906,12 @@ def _find_matching_query_memory_v2_result(
     return None
 
 
+@traceable_stage(
+    name="dat-ia.memory.save",
+    run_type="tool",
+    metadata=_trace_metadata(operation="query_memory_upsert"),
+    tags=_trace_tags(operation="query_memory_upsert"),
+)
 def _save_query_memory_v2(
     optimized_query: OptimizedQuery,
     *,
@@ -900,6 +983,19 @@ def _format_query_memory_examples(
     return "\n\n".join(formatted_examples)
 
 
+@traceable_stage(
+    name="dat-ia.llm.generate-sql",
+    run_type="llm",
+    metadata=_trace_metadata(
+        operation="sql_generation",
+        llm_provider=SQL_GENERATION_PROVIDER,
+        llm_model=SQL_GENERATION_MODEL,
+    ),
+    tags=_trace_tags(
+        operation="sql_generation",
+        llm_provider=SQL_GENERATION_PROVIDER,
+    ),
+)
 def build_rag_response(
     question: str,
     ddl: str,
@@ -963,6 +1059,12 @@ def build_rag_response(
     return parsed
 
 
+@traceable_stage(
+    name="dat-ia.database.execute-sql",
+    run_type="tool",
+    metadata=_trace_metadata(operation="read_only_sql_execution"),
+    tags=_trace_tags(operation="read_only_sql_execution"),
+)
 def execute_sql(db: SQLDatabase, sql: str, row_limit: int = 200) -> dict:
     """Ejecuta SQL de solo lectura contra Supabase con guardas de seguridad.
 
@@ -989,6 +1091,19 @@ def execute_sql(db: SQLDatabase, sql: str, row_limit: int = 200) -> dict:
     return {"rows": rows[:row_limit]}
 
 
+@traceable_stage(
+    name="dat-ia.security.prompt-shield",
+    run_type="tool",
+    metadata=_trace_metadata(
+        operation="prompt_shield",
+        llm_provider="huggingface",
+        llm_model="salmane11/SQLPromptShield",
+    ),
+    tags=_trace_tags(
+        operation="prompt_shield",
+        llm_provider="huggingface",
+    ),
+)
 def classify_shield(text_input: str) -> tuple[str, float]:
     """Clasifica un texto con SQLPromptShield. Devuelve (label, score).
 
@@ -1013,6 +1128,19 @@ def classify_shield(text_input: str) -> tuple[str, float]:
     return label, score
 
 
+@traceable_stage(
+    name="dat-ia.llm.synthesize-answer",
+    run_type="llm",
+    metadata=_trace_metadata(
+        operation="answer_synthesis",
+        llm_provider="google",
+        llm_model=MODEL,
+    ),
+    tags=_trace_tags(
+        operation="answer_synthesis",
+        llm_provider="google",
+    ),
+)
 def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
     """Sintetiza una respuesta en lenguaje natural a partir del resultado SQL.
 
@@ -1032,6 +1160,31 @@ def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
 
     structured_llm = llm.with_structured_output(_AnswerPayload)
     return structured_llm.invoke(prompt).answer
+
+
+@traceable_stage(
+    name="dat-ia.optimizer.normalize-query",
+    run_type="chain",
+    metadata=_trace_metadata(
+        operation="query_optimization",
+        llm_provider="google",
+        llm_model=MODEL,
+    ),
+    tags=_trace_tags(
+        operation="query_optimization",
+        llm_provider="google",
+    ),
+)
+def optimize_query_stage(
+    question: str,
+    *,
+    llm=None,
+) -> OptimizedQuery:
+    """Ejecuta el optimizador híbrido dentro del árbol de trazas."""
+    return optimize_query(
+        question,
+        llm=llm,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1069,13 +1222,26 @@ def ready() -> dict:
             if sql_database is not None
             else "DATABASE_URL no configurada o la conexión a Supabase falló al arrancar."
         ),
+        "langsmith": langsmith_connection_status(),
     }
 
 
 @app.post("/query/optimize", response_model=QueryOptimizeResponse)
+@traceable_stage(
+    name="dat-ia.api.query-optimize",
+    run_type="chain",
+    metadata=_trace_metadata(
+        endpoint="/query/optimize",
+        operation="api_query_optimize",
+    ),
+    tags=_trace_tags(
+        endpoint="/query/optimize",
+        operation="api_query_optimize",
+    ),
+)
 def query_optimize(request: QueryRequest) -> QueryOptimizeResponse:
     try:
-        optimized_query = optimize_query(
+        optimized_query = optimize_query_stage(
             request.question,
             llm=optimizer_llm,
         )
@@ -1258,6 +1424,18 @@ def memory_v2_search(
 
 
 @app.post("/query/json", response_model=RAGResponse)
+@traceable_stage(
+    name="dat-ia.api.query-json",
+    run_type="chain",
+    metadata=_trace_metadata(
+        endpoint="/query/json",
+        operation="api_query_json",
+    ),
+    tags=_trace_tags(
+        endpoint="/query/json",
+        operation="api_query_json",
+    ),
+)
 async def query_json(request: QueryRequest):
     """Consulta una tabla relevante y devuelve la respuesta generada por Gemini."""
     tool_logs: list[dict[str, Any]] = []
@@ -1271,7 +1449,7 @@ async def query_json(request: QueryRequest):
         )
 
     try:
-        optimized_query = optimize_query(
+        optimized_query = optimize_query_stage(
             request.question,
             llm=optimizer_llm,
         )
@@ -1344,6 +1522,18 @@ async def query_json(request: QueryRequest):
 
 
 @app.post("/query/answer", response_model=AnswerResponse)
+@traceable_stage(
+    name="dat-ia.api.query-answer",
+    run_type="chain",
+    metadata=_trace_metadata(
+        endpoint="/query/answer",
+        operation="api_query_answer",
+    ),
+    tags=_trace_tags(
+        endpoint="/query/answer",
+        operation="api_query_answer",
+    ),
+)
 async def query_answer(request: QueryRequest):
     """Flujo completo: shield -> optimizer -> retrieval -> SQL -> ejecución -> respuesta."""
     label, _score = classify_shield(request.question)
@@ -1362,7 +1552,7 @@ async def query_answer(request: QueryRequest):
         )
 
     try:
-        optimized_query = optimize_query(
+        optimized_query = optimize_query_stage(
             request.question,
             llm=optimizer_llm,
         )
@@ -1464,6 +1654,18 @@ async def query_answer(request: QueryRequest):
 
 
 @app.post("/query/shield", response_model=SHIELDResponse)
+@traceable_stage(
+    name="dat-ia.api.query-shield",
+    run_type="tool",
+    metadata=_trace_metadata(
+        endpoint="/query/shield",
+        operation="api_query_shield",
+    ),
+    tags=_trace_tags(
+        endpoint="/query/shield",
+        operation="api_query_shield",
+    ),
+)
 async def sql_shield(request: ShieldRequest):
     label, score = classify_shield(request.text_input)
 

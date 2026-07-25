@@ -26,6 +26,8 @@ from langsmith import Client, traceable
 
 REDACTED_VALUE = "[REDACTED]"
 MAX_SANITIZE_DEPTH = 10
+DEFAULT_LANGSMITH_PROJECT = "dat_ia_test"
+DEFAULT_LANGSMITH_TRACING_SAMPLING_RATE = 1.0
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _SENSITIVE_KEYS = {
@@ -74,20 +76,46 @@ def langsmith_tracing_enabled() -> bool:
     return value.strip().casefold() in _TRUE_VALUES
 
 
-def langsmith_configuration_status() -> dict[str, Any]:
-    """Expone el estado de configuración sin revelar credenciales."""
-    api_key_configured = bool(os.getenv("LANGSMITH_API_KEY"))
-    tracing_requested = langsmith_tracing_enabled()
+def langsmith_project_name() -> str:
+    """Devuelve el proyecto compartido, permitiendo sobrescribirlo por entorno."""
+    return os.getenv("LANGSMITH_PROJECT", "").strip() or DEFAULT_LANGSMITH_PROJECT
 
-    return {
-        "enabled": tracing_requested,
-        "ready": tracing_requested and api_key_configured,
-        "api_key_configured": api_key_configured,
-        "project": os.getenv("LANGSMITH_PROJECT") or None,
-        "endpoint_configured": bool(os.getenv("LANGSMITH_ENDPOINT")),
-        "workspace_configured": bool(os.getenv("LANGSMITH_WORKSPACE_ID")),
-        "sampling_rate": os.getenv("LANGSMITH_TRACING_SAMPLING_RATE") or None,
-    }
+
+def langsmith_tracing_sampling_rate() -> float:
+    """Devuelve la proporción de trazas que se enviará a LangSmith."""
+    raw_value = os.getenv("LANGSMITH_TRACING_SAMPLING_RATE", "").strip()
+
+    if not raw_value:
+        return DEFAULT_LANGSMITH_TRACING_SAMPLING_RATE
+
+    sampling_rate = float(raw_value)
+
+    if not 0 <= sampling_rate <= 1:
+        raise ValueError("LANGSMITH_TRACING_SAMPLING_RATE debe estar entre 0 y 1.")
+
+    return sampling_rate
+
+
+# def langsmith_configuration_status() -> dict[str, Any]:
+#     """Expone el estado de configuración sin revelar credenciales."""
+#     api_key_configured = bool(os.getenv("LANGSMITH_API_KEY"))
+#     tracing_requested = langsmith_tracing_enabled()
+
+#     return {
+#         "enabled": tracing_requested,
+#         "ready": tracing_requested and api_key_configured,
+#         "api_key_configured": api_key_configured,
+#         "project": langsmith_project_name(),
+#         "endpoint_configured": bool(os.getenv("LANGSMITH_ENDPOINT")),
+#         "workspace_configured": bool(os.getenv("LANGSMITH_WORKSPACE_ID")),
+#         "sampling_rate": langsmith_tracing_sampling_rate(),
+#     }
+
+
+def langsmith_connection_status() -> str:
+    """Indica si el tracing tiene bandera y API key configuradas."""
+    tracing_ready = langsmith_tracing_enabled() and bool(os.getenv("LANGSMITH_API_KEY"))
+    return "connected" if tracing_ready else "not_connected"
 
 
 @lru_cache(maxsize=1)
@@ -107,6 +135,7 @@ def get_langsmith_client() -> Client | None:
         api_url=os.getenv("LANGSMITH_ENDPOINT") or None,
         workspace_id=os.getenv("LANGSMITH_WORKSPACE_ID") or None,
         anonymizer=redact_trace_payload,
+        tracing_sampling_rate=langsmith_tracing_sampling_rate(),
     )
 
 
@@ -117,8 +146,8 @@ def redact_trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def sanitize_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
-    """Procesador predeterminado para entradas de funciones trazadas."""
-    return redact_trace_payload(inputs)
+    """Procesa entradas sin registrar filas completas de PostgreSQL."""
+    return sanitize_trace_outputs(inputs)
 
 
 def sanitize_trace_outputs(output: Any) -> dict[str, Any]:
@@ -297,7 +326,7 @@ def traceable_stage(
         name=name,
         run_type=run_type,
         client=client,
-        project_name=os.getenv("LANGSMITH_PROJECT") or None,
+        project_name=langsmith_project_name(),
         enabled=tracing_enabled,
         metadata=safe_metadata,
         tags=safe_tags,

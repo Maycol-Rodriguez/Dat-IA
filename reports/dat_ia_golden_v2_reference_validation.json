@@ -1,0 +1,1518 @@
+{
+  "dataset_version": "2.0.0",
+  "validation_scope": "30 reference SQL queries",
+  "dataset_path": "tests\\evaluation\\datasets\\dat_ia_golden_v2.jsonl",
+  "database_dialect": "postgresql",
+  "counts": {
+    "correct": 15,
+    "golden_set_outdated": 14,
+    "reference_sql_error": 1
+  },
+  "correct_case_ids": [
+    "golden_001",
+    "golden_002",
+    "golden_003",
+    "golden_004",
+    "golden_005",
+    "golden_006",
+    "golden_011",
+    "golden_012",
+    "golden_013",
+    "golden_014",
+    "golden_015",
+    "golden_016",
+    "golden_021",
+    "golden_029",
+    "golden_030"
+  ],
+  "review_case_ids": [
+    "golden_007",
+    "golden_008",
+    "golden_009",
+    "golden_010",
+    "golden_017",
+    "golden_018",
+    "golden_019",
+    "golden_020",
+    "golden_022",
+    "golden_023",
+    "golden_024",
+    "golden_025",
+    "golden_026",
+    "golden_027",
+    "golden_028"
+  ],
+  "cases": [
+    {
+      "case_id": "golden_001",
+      "question": "¿Cuántas órdenes se registraron en total?",
+      "reference_sql": "SELECT COUNT(*) AS total_orders FROM olist_orders_dataset;",
+      "expected_sources": [
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "total_orders": 99441
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "total_orders": 99441
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_002",
+      "question": "¿Cuántas órdenes fueron entregadas?",
+      "reference_sql": "SELECT COUNT(*) AS delivered_orders FROM olist_orders_dataset WHERE order_status = 'delivered';",
+      "expected_sources": [
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "delivered_orders": 96478
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "delivered_orders": 96478
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_003",
+      "question": "¿Cuántas órdenes fueron canceladas?",
+      "reference_sql": "SELECT COUNT(*) AS canceled_orders FROM olist_orders_dataset WHERE order_status = 'canceled';",
+      "expected_sources": [
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "canceled_orders": 625
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "canceled_orders": 625
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_004",
+      "question": "¿Cuántos compradores únicos existen en la base?",
+      "reference_sql": "SELECT COUNT(DISTINCT customer_unique_id) AS unique_customers FROM olist_customers_dataset;",
+      "expected_sources": [
+        "olist_customers_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "unique_customers": 96096
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "unique_customers": 96096
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_005",
+      "question": "¿Cuántos pagos se registraron por cada método de pago?",
+      "reference_sql": "SELECT payment_type, COUNT(*) AS payment_records FROM olist_order_payments_dataset GROUP BY payment_type ORDER BY payment_records DESC, payment_type;",
+      "expected_sources": [
+        "olist_order_payments_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "payment_records": 76795,
+            "payment_type": "credit_card"
+          },
+          {
+            "payment_records": 19784,
+            "payment_type": "boleto"
+          },
+          {
+            "payment_records": 5775,
+            "payment_type": "voucher"
+          },
+          {
+            "payment_records": 1529,
+            "payment_type": "debit_card"
+          },
+          {
+            "payment_records": 3,
+            "payment_type": "not_defined"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "payment_type": "credit_card",
+            "payment_records": 76795
+          },
+          {
+            "payment_type": "boleto",
+            "payment_records": 19784
+          },
+          {
+            "payment_type": "voucher",
+            "payment_records": 5775
+          },
+          {
+            "payment_type": "debit_card",
+            "payment_records": 1529
+          },
+          {
+            "payment_type": "not_defined",
+            "payment_records": 3
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_006",
+      "question": "¿Cuál es el puntaje promedio de todas las reseñas?",
+      "reference_sql": "SELECT ROUND(AVG(review_score), 2) AS avg_review_score FROM olist_order_reviews_dataset;",
+      "expected_sources": [
+        "olist_order_reviews_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "avg_review_score": 4.09
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "avg_review_score": 4.09
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_007",
+      "question": "¿Cuál es el tipo de incidencia de entrega más frecuente?",
+      "reference_sql": "SELECT incident_type, COUNT(*) AS incidents FROM delivery_incidents GROUP BY incident_type ORDER BY incidents DESC, incident_type LIMIT 1;",
+      "expected_sources": [
+        "delivery_incidents"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'incident_type': 'retraso_severo', 'incidents': 7573}; actual={'incident_type': 'retraso', 'incidents': 4533}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "incident_type": "retraso_severo",
+            "incidents": 7573
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "incident_type": "retraso",
+            "incidents": 4533
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_008",
+      "question": "¿Cuántos tickets de soporte permanecen sin resolver?",
+      "reference_sql": "SELECT COUNT(*) AS unresolved_tickets FROM customer_support_tickets WHERE resolved = FALSE;",
+      "expected_sources": [
+        "customer_support_tickets"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'unresolved_tickets': 3263}; actual={'unresolved_tickets': 1946}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "unresolved_tickets": 3263
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "unresolved_tickets": 1946
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_009",
+      "question": "¿Cuántos registros de inventario están por debajo de su punto de reorden?",
+      "reference_sql": "SELECT COUNT(*) AS inventory_records_at_risk FROM warehouse_inventory WHERE stock_qty < reorder_point;",
+      "expected_sources": [
+        "warehouse_inventory"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'inventory_records_at_risk': 2879}; actual={'inventory_records_at_risk': 2895}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "inventory_records_at_risk": 2879
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "inventory_records_at_risk": 2895
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_010",
+      "question": "¿Qué transportista tiene la mayor tasa de puntualidad declarada?",
+      "reference_sql": "SELECT carrier_name, ROUND(on_time_rate * 100, 2) AS on_time_rate_pct FROM carriers ORDER BY on_time_rate DESC, carrier_name LIMIT 1;",
+      "expected_sources": [
+        "carriers"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'carrier_name': 'Norte Express', 'on_time_rate_pct': 94.8}; actual={'carrier_name': 'InterEstadual Cargo', 'on_time_rate_pct': 96}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "carrier_name": "Norte Express",
+            "on_time_rate_pct": 94.8
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "carrier_name": "InterEstadual Cargo",
+            "on_time_rate_pct": 96
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_011",
+      "question": "¿Cuántas órdenes entregadas hubo por mes durante 2018?",
+      "reference_sql": "SELECT SUBSTR(CAST(order_purchase_timestamp AS TEXT), 1, 7) AS month, COUNT(*) AS delivered_orders FROM olist_orders_dataset WHERE order_status = 'delivered' AND order_purchase_timestamp >= '2018-01-01' AND order_purchase_timestamp < '2019-01-01' GROUP BY month ORDER BY month;",
+      "expected_sources": [
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 8,
+        "rows": [
+          {
+            "delivered_orders": 7069,
+            "month": "2018-01"
+          },
+          {
+            "delivered_orders": 6555,
+            "month": "2018-02"
+          },
+          {
+            "delivered_orders": 7003,
+            "month": "2018-03"
+          },
+          {
+            "delivered_orders": 6798,
+            "month": "2018-04"
+          },
+          {
+            "delivered_orders": 6749,
+            "month": "2018-05"
+          },
+          {
+            "delivered_orders": 6099,
+            "month": "2018-06"
+          },
+          {
+            "delivered_orders": 6159,
+            "month": "2018-07"
+          },
+          {
+            "delivered_orders": 6351,
+            "month": "2018-08"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 8,
+        "rows": [
+          {
+            "month": "2018-01",
+            "delivered_orders": 7069
+          },
+          {
+            "month": "2018-02",
+            "delivered_orders": 6555
+          },
+          {
+            "month": "2018-03",
+            "delivered_orders": 7003
+          },
+          {
+            "month": "2018-04",
+            "delivered_orders": 6798
+          },
+          {
+            "month": "2018-05",
+            "delivered_orders": 6749
+          },
+          {
+            "month": "2018-06",
+            "delivered_orders": 6099
+          },
+          {
+            "month": "2018-07",
+            "delivered_orders": 6159
+          },
+          {
+            "month": "2018-08",
+            "delivered_orders": 6351
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_012",
+      "question": "¿Qué porcentaje de las órdenes entregadas llegó tarde?",
+      "reference_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN order_delivered_customer_date > order_estimated_delivery_date THEN 1 ELSE 0 END) / COUNT(*), 2) AS late_delivery_pct FROM olist_orders_dataset WHERE order_status = 'delivered' AND order_delivered_customer_date IS NOT NULL AND order_estimated_delivery_date IS NOT NULL;",
+      "expected_sources": [
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "late_delivery_pct": 8.11
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "late_delivery_pct": 8.11
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_013",
+      "question": "¿Cuáles son los 5 estados con más órdenes entregadas?",
+      "reference_sql": "SELECT c.customer_state, COUNT(*) AS delivered_orders FROM olist_orders_dataset o JOIN olist_customers_dataset c ON c.customer_id = o.customer_id WHERE o.order_status = 'delivered' GROUP BY c.customer_state ORDER BY delivered_orders DESC, c.customer_state LIMIT 5;",
+      "expected_sources": [
+        "olist_orders_dataset",
+        "olist_customers_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "customer_state": "SP",
+            "delivered_orders": 40501
+          },
+          {
+            "customer_state": "RJ",
+            "delivered_orders": 12350
+          },
+          {
+            "customer_state": "MG",
+            "delivered_orders": 11354
+          },
+          {
+            "customer_state": "RS",
+            "delivered_orders": 5345
+          },
+          {
+            "customer_state": "PR",
+            "delivered_orders": 4923
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "customer_state": "SP",
+            "delivered_orders": 40501
+          },
+          {
+            "customer_state": "RJ",
+            "delivered_orders": 12350
+          },
+          {
+            "customer_state": "MG",
+            "delivered_orders": 11354
+          },
+          {
+            "customer_state": "RS",
+            "delivered_orders": 5345
+          },
+          {
+            "customer_state": "PR",
+            "delivered_orders": 4923
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_014",
+      "question": "¿Cuáles son las 5 categorías con más ítems vendidos en órdenes entregadas?",
+      "reference_sql": "SELECT COALESCE(t.product_category_name_english, p.product_category_name, 'sin_categoria') AS category, COUNT(*) AS items_sold FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id LEFT JOIN olist_products_dataset p ON p.product_id = i.product_id LEFT JOIN product_category_name_translation t ON t.product_category_name = p.product_category_name WHERE o.order_status = 'delivered' GROUP BY category ORDER BY items_sold DESC, category LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset",
+        "olist_products_dataset",
+        "product_category_name_translation"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "bed_bath_table",
+            "items_sold": 10953
+          },
+          {
+            "category": "health_beauty",
+            "items_sold": 9465
+          },
+          {
+            "category": "sports_leisure",
+            "items_sold": 8431
+          },
+          {
+            "category": "furniture_decor",
+            "items_sold": 8160
+          },
+          {
+            "category": "computers_accessories",
+            "items_sold": 7644
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "bed_bath_table",
+            "items_sold": 10953
+          },
+          {
+            "category": "health_beauty",
+            "items_sold": 9465
+          },
+          {
+            "category": "sports_leisure",
+            "items_sold": 8431
+          },
+          {
+            "category": "furniture_decor",
+            "items_sold": 8160
+          },
+          {
+            "category": "computers_accessories",
+            "items_sold": 7644
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_015",
+      "question": "¿Cuáles son los 5 vendedores con mayor ingreso por productos entregados?",
+      "reference_sql": "SELECT i.seller_id, s.seller_city, s.seller_state, ROUND(SUM(i.price), 2) AS merchandise_revenue_brl FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id LEFT JOIN olist_sellers_dataset s ON s.seller_id = i.seller_id WHERE o.order_status = 'delivered' GROUP BY i.seller_id, s.seller_city, s.seller_state ORDER BY merchandise_revenue_brl DESC, i.seller_id LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset",
+        "olist_sellers_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "merchandise_revenue_brl": 226987.93,
+            "seller_id": "4869f7a5dfa277a7dca6462dcf3b52b2"
+          },
+          {
+            "merchandise_revenue_brl": 217940.44,
+            "seller_id": "53243585a1d6dc2643021fd1853d8905"
+          },
+          {
+            "merchandise_revenue_brl": 196882.12,
+            "seller_id": "4a3ca9315b744ce9f8e9374361493884"
+          },
+          {
+            "merchandise_revenue_brl": 190917.14,
+            "seller_id": "fa1c13f2614d7b5c4749cbc52fecda94"
+          },
+          {
+            "merchandise_revenue_brl": 186570.05,
+            "seller_id": "7c67e1448b00f6e969d365cea6b010ab"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "seller_id": "4869f7a5dfa277a7dca6462dcf3b52b2",
+            "seller_city": "guariba",
+            "seller_state": "SP",
+            "merchandise_revenue_brl": 226987.93
+          },
+          {
+            "seller_id": "53243585a1d6dc2643021fd1853d8905",
+            "seller_city": "lauro de freitas",
+            "seller_state": "BA",
+            "merchandise_revenue_brl": 217940.44
+          },
+          {
+            "seller_id": "4a3ca9315b744ce9f8e9374361493884",
+            "seller_city": "ibitinga",
+            "seller_state": "SP",
+            "merchandise_revenue_brl": 196882.12
+          },
+          {
+            "seller_id": "fa1c13f2614d7b5c4749cbc52fecda94",
+            "seller_city": "sumare",
+            "seller_state": "SP",
+            "merchandise_revenue_brl": 190917.14
+          },
+          {
+            "seller_id": "7c67e1448b00f6e969d365cea6b010ab",
+            "seller_city": "itaquaquecetuba",
+            "seller_state": "SP",
+            "merchandise_revenue_brl": 186570.05
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_016",
+      "question": "¿Cuáles son los 5 estados con mayor flete promedio por ítem entregado?",
+      "reference_sql": "SELECT c.customer_state, ROUND(AVG(i.freight_value), 2) AS avg_freight_brl FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id JOIN olist_customers_dataset c ON c.customer_id = o.customer_id WHERE o.order_status = 'delivered' GROUP BY c.customer_state ORDER BY avg_freight_brl DESC, c.customer_state LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset",
+        "olist_customers_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "avg_freight_brl": 43.09,
+            "customer_state": "PB"
+          },
+          {
+            "avg_freight_brl": 43.09,
+            "customer_state": "RR"
+          },
+          {
+            "avg_freight_brl": 41.33,
+            "customer_state": "RO"
+          },
+          {
+            "avg_freight_brl": 40.05,
+            "customer_state": "AC"
+          },
+          {
+            "avg_freight_brl": 39.12,
+            "customer_state": "PI"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "customer_state": "PB",
+            "avg_freight_brl": 43.09
+          },
+          {
+            "customer_state": "RR",
+            "avg_freight_brl": 43.09
+          },
+          {
+            "customer_state": "RO",
+            "avg_freight_brl": 41.33
+          },
+          {
+            "customer_state": "AC",
+            "avg_freight_brl": 40.05
+          },
+          {
+            "customer_state": "PI",
+            "avg_freight_brl": 39.12
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_017",
+      "question": "¿Cuántas reseñas hay para cada calificación del 1 al 5?",
+      "reference_sql": "SELECT review_score, COUNT(*) AS reviews FROM olist_order_reviews_dataset GROUP BY review_score ORDER BY review_score;",
+      "expected_sources": [
+        "olist_order_reviews_dataset"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'review_score': 1, 'reviews': 3904}; actual={'review_score': 1, 'reviews': 14891}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "review_score": 1,
+            "reviews": 3904
+          },
+          {
+            "review_score": 2,
+            "reviews": 1064
+          },
+          {
+            "review_score": 3,
+            "reviews": 2760
+          },
+          {
+            "review_score": 4,
+            "reviews": 6689
+          },
+          {
+            "review_score": 5,
+            "reviews": 19651
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "review_score": 1,
+            "reviews": 14891
+          },
+          {
+            "review_score": 2,
+            "reviews": 4091
+          },
+          {
+            "review_score": 3,
+            "reviews": 10607
+          },
+          {
+            "review_score": 4,
+            "reviews": 25030
+          },
+          {
+            "review_score": 5,
+            "reviews": 74756
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_018",
+      "question": "¿Cuántos tickets hay por categoría y qué porcentaje fue resuelto?",
+      "reference_sql": "SELECT category, COUNT(*) AS tickets, ROUND(100.0 * SUM(CASE WHEN resolved = TRUE THEN 1 ELSE 0 END) / COUNT(*), 2) AS resolved_pct FROM customer_support_tickets GROUP BY category ORDER BY tickets DESC, category;",
+      "expected_sources": [
+        "customer_support_tickets"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la cantidad de filas difiere: esperadas=5, actuales=6.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "problema_entrega",
+            "resolved_pct": 84.9,
+            "tickets": 7747
+          },
+          {
+            "category": "producto_defectuoso",
+            "resolved_pct": 85.25,
+            "tickets": 5402
+          },
+          {
+            "category": "solicitud_devolucion",
+            "resolved_pct": 85.12,
+            "tickets": 4409
+          },
+          {
+            "category": "problema_pago",
+            "resolved_pct": 84.93,
+            "tickets": 2123
+          },
+          {
+            "category": "consulta_general",
+            "resolved_pct": 84.73,
+            "tickets": 2096
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 6,
+        "rows": [
+          {
+            "category": "envio",
+            "tickets": 3875,
+            "resolved_pct": 85.24
+          },
+          {
+            "category": "producto",
+            "tickets": 3225,
+            "resolved_pct": 85.43
+          },
+          {
+            "category": "reembolso",
+            "tickets": 1709,
+            "resolved_pct": 85.9
+          },
+          {
+            "category": "pago",
+            "tickets": 1536,
+            "resolved_pct": 84.38
+          },
+          {
+            "category": "garantia",
+            "tickets": 1382,
+            "resolved_pct": 82.49
+          },
+          {
+            "category": "otro",
+            "tickets": 1273,
+            "resolved_pct": 85.78
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_019",
+      "question": "¿Cuántas devoluciones se registraron por cada motivo?",
+      "reference_sql": "SELECT return_reason, COUNT(*) AS returns FROM product_returns GROUP BY return_reason ORDER BY returns DESC, return_reason;",
+      "expected_sources": [
+        "product_returns"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la cantidad de filas difiere: esperadas=5, actuales=6.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "return_reason": "producto_defectuoso",
+            "returns": 4654
+          },
+          {
+            "return_reason": "no_coincide_descripcion",
+            "returns": 3938
+          },
+          {
+            "return_reason": "error_pedido",
+            "returns": 1972
+          },
+          {
+            "return_reason": "arrepentimiento_comprador",
+            "returns": 1531
+          },
+          {
+            "return_reason": "dano_envio",
+            "returns": 1042
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 6,
+        "rows": [
+          {
+            "return_reason": "defectuoso",
+            "returns": 1782
+          },
+          {
+            "return_reason": "no_coincide_descripcion",
+            "returns": 1438
+          },
+          {
+            "return_reason": "danado_envio",
+            "returns": 1058
+          },
+          {
+            "return_reason": "talla_incorrecta",
+            "returns": 1028
+          },
+          {
+            "return_reason": "cambio_opinion",
+            "returns": 990
+          },
+          {
+            "return_reason": "llego_tarde",
+            "returns": 704
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_020",
+      "question": "¿Cuál es la latitud y longitud promedio de los registros geográficos del estado de São Paulo (SP)?",
+      "reference_sql": "SELECT ROUND(AVG(geolocation_lat), 5) AS avg_lat, ROUND(AVG(geolocation_lng), 5) AS avg_lng FROM olist_geolocation_dataset WHERE geolocation_state = 'SP';",
+      "expected_sources": [
+        "olist_geolocation_dataset"
+      ],
+      "classification": "reference_sql_error",
+      "reason": "ProgrammingError: (psycopg2.errors.UndefinedFunction) function round(double precision, integer) does not exist\nLINE 1: SELECT ROUND(AVG(geolocation_lat), 5) AS avg_lat, ROUND(AVG(...\n               ^\nHINT:  No function matches the given name and argument types. You might need to add explicit type casts.\n\n[SQL: SELECT ROUND(AVG(geolocation_lat), 5) AS avg_lat, ROUND(AVG(geolocation_lng), 5) AS avg_lng FROM olist_geolocation_dataset WHERE geolocation_state = 'SP';]\n(Background on this error at: https://sqlalche.me/e/20/f405)",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "avg_lat": -23.15531,
+            "avg_lng": -47.08407
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": null
+    },
+    {
+      "case_id": "golden_021",
+      "question": "¿Cuántos compradores realizaron más de una orden entregada?",
+      "reference_sql": "SELECT COUNT(*) AS recurrent_customers FROM (SELECT c.customer_unique_id FROM olist_customers_dataset c JOIN olist_orders_dataset o ON o.customer_id = c.customer_id WHERE o.order_status = 'delivered' GROUP BY c.customer_unique_id HAVING COUNT(*) > 1) recurrent;",
+      "expected_sources": [
+        "olist_customers_dataset",
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "recurrent_customers": 2801
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "recurrent_customers": 2801
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_022",
+      "question": "¿Cuáles son las 5 categorías con mejor calificación promedio, considerando al menos 100 reseñas?",
+      "reference_sql": "WITH order_categories AS (SELECT DISTINCT i.order_id, p.product_category_name AS category FROM olist_order_items_dataset i JOIN olist_products_dataset p ON p.product_id = i.product_id WHERE p.product_category_name IS NOT NULL) SELECT oc.category, COUNT(*) AS reviews, ROUND(AVG(r.review_score), 2) AS avg_review_score FROM order_categories oc JOIN olist_order_reviews_dataset r ON r.order_id = oc.order_id GROUP BY oc.category HAVING COUNT(*) >= 100 ORDER BY avg_review_score DESC, reviews DESC, oc.category LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_products_dataset",
+        "olist_order_reviews_dataset"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'avg_review_score': 4.52, 'category': 'livros_interesse_geral'}; actual={'category': 'livros_interesse_geral', 'reviews': 673, 'avg_review_score': 4.48}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "avg_review_score": 4.52,
+            "category": "livros_interesse_geral"
+          },
+          {
+            "avg_review_score": 4.34,
+            "category": "alimentos"
+          },
+          {
+            "avg_review_score": 4.33,
+            "category": "malas_acessorios"
+          },
+          {
+            "avg_review_score": 4.29,
+            "category": "pet_shop"
+          },
+          {
+            "avg_review_score": 4.25,
+            "category": "papelaria"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "livros_interesse_geral",
+            "reviews": 673,
+            "avg_review_score": 4.48
+          },
+          {
+            "category": "construcao_ferramentas_ferramentas",
+            "reviews": 118,
+            "avg_review_score": 4.44
+          },
+          {
+            "category": "livros_tecnicos",
+            "reviews": 339,
+            "avg_review_score": 4.41
+          },
+          {
+            "category": "alimentos_bebidas",
+            "reviews": 300,
+            "avg_review_score": 4.38
+          },
+          {
+            "category": "malas_acessorios",
+            "reviews": 1339,
+            "avg_review_score": 4.34
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_023",
+      "question": "¿Cuál es la calificación promedio de las órdenes que tuvieron una incidencia de entrega?",
+      "reference_sql": "SELECT ROUND(AVG(r.review_score), 2) AS avg_review_with_incident FROM olist_order_reviews_dataset r WHERE EXISTS (SELECT 1 FROM delivery_incidents d WHERE d.order_id = r.order_id);",
+      "expected_sources": [
+        "olist_order_reviews_dataset",
+        "delivery_incidents"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'avg_review_with_incident': 2.83}; actual={'avg_review_with_incident': 3.24}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "avg_review_with_incident": 2.83
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "avg_review_with_incident": 3.24
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_024",
+      "question": "¿Cuáles son las 5 categorías de producto con más devoluciones?",
+      "reference_sql": "SELECT COALESCE(t.product_category_name_english, p.product_category_name, 'sin_categoria') AS category, COUNT(*) AS returns FROM product_returns r JOIN olist_products_dataset p ON p.product_id = r.product_id LEFT JOIN product_category_name_translation t ON t.product_category_name = p.product_category_name GROUP BY category ORDER BY returns DESC, category LIMIT 5;",
+      "expected_sources": [
+        "product_returns",
+        "olist_products_dataset",
+        "product_category_name_translation"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'category': 'bed_bath_table', 'returns': 1501}; actual={'category': 'bed_bath_table', 'returns': 771}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "bed_bath_table",
+            "returns": 1501
+          },
+          {
+            "category": "furniture_decor",
+            "returns": 1047
+          },
+          {
+            "category": "health_beauty",
+            "returns": 1044
+          },
+          {
+            "category": "sports_leisure",
+            "returns": 946
+          },
+          {
+            "category": "computers_accessories",
+            "returns": 940
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "category": "bed_bath_table",
+            "returns": 771
+          },
+          {
+            "category": "health_beauty",
+            "returns": 599
+          },
+          {
+            "category": "sports_leisure",
+            "returns": 541
+          },
+          {
+            "category": "computers_accessories",
+            "returns": 511
+          },
+          {
+            "category": "furniture_decor",
+            "returns": 503
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_025",
+      "question": "¿Cuál fue el cambio promedio de precio en BRL por cada motivo?",
+      "reference_sql": "SELECT change_reason, COUNT(*) AS price_changes, ROUND(AVG(new_price - old_price), 2) AS avg_price_change_brl FROM product_price_history GROUP BY change_reason ORDER BY price_changes DESC, change_reason;",
+      "expected_sources": [
+        "product_price_history"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'avg_price_change_brl': -3.21, 'change_reason': 'ajuste_competitivo'}; actual={'change_reason': 'ajuste_inflacion', 'price_changes': 1781, 'avg_price_change_brl': 3.76}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "avg_price_change_brl": -3.21,
+            "change_reason": "ajuste_competitivo"
+          },
+          {
+            "avg_price_change_brl": -3.02,
+            "change_reason": "promocion_temporal"
+          },
+          {
+            "avg_price_change_brl": -2.89,
+            "change_reason": "liquidacion_stock"
+          },
+          {
+            "avg_price_change_brl": -2.94,
+            "change_reason": "ajuste_costo"
+          },
+          {
+            "avg_price_change_brl": null,
+            "change_reason": null
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "change_reason": "ajuste_inflacion",
+            "price_changes": 1781,
+            "avg_price_change_brl": 3.76
+          },
+          {
+            "change_reason": "demanda_estacional",
+            "price_changes": 1770,
+            "avg_price_change_brl": 3.29
+          },
+          {
+            "change_reason": "correccion_precio",
+            "price_changes": 1767,
+            "avg_price_change_brl": 4
+          },
+          {
+            "change_reason": "promocion",
+            "price_changes": 1764,
+            "avg_price_change_brl": 4.34
+          },
+          {
+            "change_reason": "cambio_proveedor",
+            "price_changes": 1750,
+            "avg_price_change_brl": 4.75
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_026",
+      "question": "¿Qué tipo de promoción vendió más unidades?",
+      "reference_sql": "SELECT promo_type, SUM(units_sold_during) AS units_sold FROM seller_promotions GROUP BY promo_type ORDER BY units_sold DESC, promo_type LIMIT 1;",
+      "expected_sources": [
+        "seller_promotions"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'promo_type': 'descuento_directo', 'units_sold': 587}; actual={'promo_type': 'flash_sale', 'units_sold': 112031}.",
+      "expected_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "promo_type": "descuento_directo",
+            "units_sold": 587
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 1,
+        "rows": [
+          {
+            "promo_type": "flash_sale",
+            "units_sold": 112031
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_027",
+      "question": "¿Cuáles son los 5 transportistas que manejaron más órdenes entregadas?",
+      "reference_sql": "SELECT c.carrier_name, COUNT(DISTINCT i.order_id) AS delivered_orders FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id JOIN carriers c ON c.carrier_id = i.carrier_id WHERE o.order_status = 'delivered' GROUP BY c.carrier_id, c.carrier_name ORDER BY delivered_orders DESC, c.carrier_name LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset",
+        "carriers"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'carrier_name': 'JL Express', 'delivered_orders': 76654}; actual={'carrier_name': 'MercadoEnvios', 'delivered_orders': 7320}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "carrier_name": "JL Express",
+            "delivered_orders": 76654
+          },
+          {
+            "carrier_name": "CaminhoCerto Log",
+            "delivered_orders": 8645
+          },
+          {
+            "carrier_name": "Correios SEDEX",
+            "delivered_orders": 4227
+          },
+          {
+            "carrier_name": "AzulCargo",
+            "delivered_orders": 3690
+          },
+          {
+            "carrier_name": "Veloz Entregas",
+            "delivered_orders": 2281
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "carrier_name": "MercadoEnvios",
+            "delivered_orders": 7320
+          },
+          {
+            "carrier_name": "TurboEntrega",
+            "delivered_orders": 7163
+          },
+          {
+            "carrier_name": "TotalEntregas",
+            "delivered_orders": 6831
+          },
+          {
+            "carrier_name": "Transportadora Andina",
+            "delivered_orders": 5829
+          },
+          {
+            "carrier_name": "SafeShip BR",
+            "delivered_orders": 5542
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_028",
+      "question": "¿Cuáles son los 5 estados de vendedores con más registros de inventario bajo el punto de reorden?",
+      "reference_sql": "SELECT s.seller_state, COUNT(*) AS records_at_risk FROM warehouse_inventory w JOIN olist_sellers_dataset s ON s.seller_id = w.seller_id WHERE w.stock_qty < w.reorder_point GROUP BY s.seller_state ORDER BY records_at_risk DESC, s.seller_state LIMIT 5;",
+      "expected_sources": [
+        "warehouse_inventory",
+        "olist_sellers_dataset"
+      ],
+      "classification": "golden_set_outdated",
+      "reason": "El SQL se ejecutó, pero la fila 1 difiere. Esperada={'records_at_risk': 1986, 'seller_state': 'SP'}; actual={'seller_state': 'SP', 'records_at_risk': 1954}.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "records_at_risk": 1986,
+            "seller_state": "SP"
+          },
+          {
+            "records_at_risk": 234,
+            "seller_state": "PR"
+          },
+          {
+            "records_at_risk": 225,
+            "seller_state": "MG"
+          },
+          {
+            "records_at_risk": 142,
+            "seller_state": "RJ"
+          },
+          {
+            "records_at_risk": 129,
+            "seller_state": "SC"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "seller_state": "SP",
+            "records_at_risk": 1954
+          },
+          {
+            "seller_state": "PR",
+            "records_at_risk": 276
+          },
+          {
+            "seller_state": "MG",
+            "records_at_risk": 229
+          },
+          {
+            "seller_state": "RJ",
+            "records_at_risk": 145
+          },
+          {
+            "seller_state": "SC",
+            "records_at_risk": 135
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_029",
+      "question": "¿Cuáles son los 5 vendedores con mayor cantidad de ítems entregados?",
+      "reference_sql": "SELECT i.seller_id, s.seller_city, s.seller_state, COUNT(*) AS delivered_items FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id LEFT JOIN olist_sellers_dataset s ON s.seller_id = i.seller_id WHERE o.order_status = 'delivered' GROUP BY i.seller_id, s.seller_city, s.seller_state ORDER BY delivered_items DESC, i.seller_id LIMIT 5;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset",
+        "olist_sellers_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "delivered_items": 1996,
+            "seller_id": "6560211a19b47992c3666cc44a7e94c0"
+          },
+          {
+            "delivered_items": 1949,
+            "seller_id": "4a3ca9315b744ce9f8e9374361493884"
+          },
+          {
+            "delivered_items": 1926,
+            "seller_id": "1f50f920176fa81dab994f9023523100"
+          },
+          {
+            "delivered_items": 1719,
+            "seller_id": "cc419e0650a3c5ba77189a1882b7556a"
+          },
+          {
+            "delivered_items": 1548,
+            "seller_id": "da8622b14eb17ae2831f4ac5b9dab84a"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 5,
+        "rows": [
+          {
+            "seller_id": "6560211a19b47992c3666cc44a7e94c0",
+            "seller_city": "sao paulo",
+            "seller_state": "SP",
+            "delivered_items": 1996
+          },
+          {
+            "seller_id": "4a3ca9315b744ce9f8e9374361493884",
+            "seller_city": "ibitinga",
+            "seller_state": "SP",
+            "delivered_items": 1949
+          },
+          {
+            "seller_id": "1f50f920176fa81dab994f9023523100",
+            "seller_city": "sao jose do rio preto",
+            "seller_state": "SP",
+            "delivered_items": 1926
+          },
+          {
+            "seller_id": "cc419e0650a3c5ba77189a1882b7556a",
+            "seller_city": "santo andre",
+            "seller_state": "SP",
+            "delivered_items": 1719
+          },
+          {
+            "seller_id": "da8622b14eb17ae2831f4ac5b9dab84a",
+            "seller_city": "piracicaba",
+            "seller_state": "SP",
+            "delivered_items": 1548
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "golden_030",
+      "question": "¿Cuál fue el ingreso mensual por productos entregados durante 2018?",
+      "reference_sql": "SELECT SUBSTR(CAST(o.order_purchase_timestamp AS TEXT), 1, 7) AS month, ROUND(SUM(i.price), 2) AS merchandise_revenue_brl FROM olist_order_items_dataset i JOIN olist_orders_dataset o ON o.order_id = i.order_id WHERE o.order_status = 'delivered' AND o.order_purchase_timestamp >= '2018-01-01' AND o.order_purchase_timestamp < '2019-01-01' GROUP BY month ORDER BY month;",
+      "expected_sources": [
+        "olist_order_items_dataset",
+        "olist_orders_dataset"
+      ],
+      "classification": "correct",
+      "reason": "El SQL se ejecutó y el resultado completo coincide.",
+      "expected_result": {
+        "row_count": 8,
+        "rows": [
+          {
+            "merchandise_revenue_brl": 924645.0,
+            "month": "2018-01"
+          },
+          {
+            "merchandise_revenue_brl": 826437.13,
+            "month": "2018-02"
+          },
+          {
+            "merchandise_revenue_brl": 953356.25,
+            "month": "2018-03"
+          },
+          {
+            "merchandise_revenue_brl": 973534.09,
+            "month": "2018-04"
+          },
+          {
+            "merchandise_revenue_brl": 977544.69,
+            "month": "2018-05"
+          },
+          {
+            "merchandise_revenue_brl": 856077.86,
+            "month": "2018-06"
+          },
+          {
+            "merchandise_revenue_brl": 867953.46,
+            "month": "2018-07"
+          },
+          {
+            "merchandise_revenue_brl": 838576.64,
+            "month": "2018-08"
+          }
+        ],
+        "numeric_tolerance": 0.01
+      },
+      "actual_result": {
+        "row_count": 8,
+        "rows": [
+          {
+            "month": "2018-01",
+            "merchandise_revenue_brl": 924645
+          },
+          {
+            "month": "2018-02",
+            "merchandise_revenue_brl": 826437.13
+          },
+          {
+            "month": "2018-03",
+            "merchandise_revenue_brl": 953356.25
+          },
+          {
+            "month": "2018-04",
+            "merchandise_revenue_brl": 973534.09
+          },
+          {
+            "month": "2018-05",
+            "merchandise_revenue_brl": 977544.69
+          },
+          {
+            "month": "2018-06",
+            "merchandise_revenue_brl": 856077.86
+          },
+          {
+            "month": "2018-07",
+            "merchandise_revenue_brl": 867953.46
+          },
+          {
+            "month": "2018-08",
+            "merchandise_revenue_brl": 838576.64
+          }
+        ]
+      }
+    }
+  ]
+}
