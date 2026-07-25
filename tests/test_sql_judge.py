@@ -106,6 +106,7 @@ def test_judge_sql_includes_optimized_query_fields_in_prompt() -> None:
     assert "carrier_name" in prompt
     assert "2018-01-01" in prompt
     assert sql in prompt
+    assert "promedio de retraso por transportista" in prompt
 
 
 def test_judge_sql_does_not_receive_ddl_or_memory_examples() -> None:
