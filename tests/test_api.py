@@ -1394,6 +1394,14 @@ class FakeAnswerCollection:
         return 1
 
 
+class FakeSqlDatabase:
+    """Simula SQLDatabase solo para el dry-run de validate_sql (nunca falla EXPLAIN)."""
+
+    def run_no_throw(self, sql: str, fetch: str = "cursor"):
+        _ = sql, fetch
+        return None
+
+
 def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
     from app import main as main_module
 
@@ -1410,13 +1418,24 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
         question: str,
         ddl: str,
         memory_examples=None,
+        feedback=None,
     ):
-        _ = question, ddl, memory_examples
+        _ = question, ddl, memory_examples, feedback
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
             sources="carriers",
             confidence_note="Usa la métrica on_time_rate.",
             status="success",
+        )
+
+    def fake_judge_sql(optimized_query, sql, llm):
+        _ = optimized_query, sql, llm
+        return main_module.SqlVerdict(
+            issues=[],
+            is_valid=True,
+            answers_question=True,
+            suggested_fix="",
+            confidence=1.0,
         )
 
     monkeypatch.setattr(main_module, "classify_shield", lambda text: (shield_label, 0.99))
@@ -1427,9 +1446,10 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
         "query_memory_v2_collection",
         None,
     )
-    monkeypatch.setattr(main_module, "sql_database", object())
+    monkeypatch.setattr(main_module, "sql_database", FakeSqlDatabase())
     monkeypatch.setattr(main_module, "query_embeddings", fake_query_embeddings)
     monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response)
+    monkeypatch.setattr(main_module, "judge_sql", fake_judge_sql)
 
 
 def test_query_answer_blocks_malicious_input(monkeypatch) -> None:
@@ -1542,7 +1562,9 @@ def test_query_answer_marks_matching_memory_without_duplicate(
         question: str,
         ddl: str,
         memory_examples=None,
+        feedback=None,
     ):
+        _ = feedback
         captured["generation_question"] = question
         captured["ddl"] = ddl
         captured["memory_examples"] = memory_examples
@@ -1795,8 +1817,9 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
         question: str,
         ddl: str,
         memory_examples=None,
+        feedback=None,
     ):
-        _ = question, ddl, memory_examples
+        _ = question, ddl, memory_examples, feedback
         return main_module.RAGResponse(
             sql="I do not know",
             sources="",
