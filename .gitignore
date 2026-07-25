@@ -16,6 +16,7 @@ datasets/
 
 # LangSmith guarda datasets y experimentos en remoto: no genera archivos
 # locales que deban ignorarse. Cualquier JSONL intermedio sigue cubierto por
+# *.jsonl; solo el golden set canónico se versiona como código de evaluación.
 !tests/evaluation/datasets/
 !tests/evaluation/datasets/dat_ia_golden_v2.jsonl
 
@@ -44,6 +45,8 @@ lightning_logs/
 
 # ==========================================
 __pycache__/
+.pytest_cache/
+.pytest_tmp/
 *.py[cod]
 *$py.class
 .Python
