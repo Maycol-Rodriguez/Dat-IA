@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.optimizer.query_optimizer import OptimizedQuery, QueryFilter
 from app.validation.result_guardrail import check_groundedness, check_result
 
@@ -86,6 +88,17 @@ def test_check_groundedness_flags_unsupported_number() -> None:
 
     assert result.ok is False
     assert "452" in result.unsupported_numbers
+
+
+def test_check_groundedness_accepts_decimal_values_from_postgres() -> None:
+    """Columnas NUMERIC via psycopg2/SQLAlchemy llegan como Decimal, no float."""
+    rows = [{"carrier_name": "InterEstadual Cargo", "on_time_rate": Decimal("0.960")}]
+    answer = "El transportista con mejor cumplimiento es InterEstadual Cargo, con 0.960."
+
+    result = check_groundedness(answer, rows)
+
+    assert result.ok is True
+    assert result.unsupported_numbers == []
 
 
 def test_check_groundedness_respects_rounding_tolerance() -> None:

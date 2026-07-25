@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 
 from app.optimizer.query_optimizer import OptimizedQuery
 from app.validation.sql_validator import DEFAULT_ROW_LIMIT
@@ -102,7 +103,9 @@ def check_groundedness(
         round(float(value), 2)
         for row in rows
         for value in row.values()
-        if isinstance(value, (int, float))
+        # Decimal es lo que devuelven las columnas NUMERIC de Postgres via
+        # psycopg2/SQLAlchemy para execute_sql, no un float nativo.
+        if isinstance(value, (int, float, Decimal))
     }
 
     unsupported = []

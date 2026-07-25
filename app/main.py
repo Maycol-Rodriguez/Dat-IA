@@ -1525,7 +1525,10 @@ async def query_json(request: QueryRequest):
 
 @app.post("/query/answer", response_model=AnswerResponse)
 async def query_answer(request: QueryRequest):
-    """Flujo completo: shield -> optimizer -> retrieval -> SQL -> ejecución -> respuesta."""
+    """Flujo completo: shield -> optimizer -> retrieval ->
+    generate_validated_sql (validar + juzgar, con reintento) ->
+    ejecución -> guardrail de resultado -> respuesta.
+    """
     label, _score = classify_shield(request.question)
     if label == "MALICIOUS":
         raise HTTPException(422, "La pregunta fue bloqueada por el filtro de seguridad.")
