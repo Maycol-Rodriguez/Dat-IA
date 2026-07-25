@@ -56,6 +56,7 @@ CF_BASE_URL            = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACC
 rag_llm = None  # ChatGoogleGenerativeAI con salida estructurada (RAGResponse)
 optimizer_llm = None  # ChatGoogleGenerativeAI usado por optimize_query (with_structured_output)
 answer_llm = None  # ChatGoogleGenerativeAI usado por synthesize_answer (with_structured_output)
+judge_llm = None  # ChatGoogleGenerativeAI usado por judge_sql (with_structured_output)
 embeddings_model: GoogleGenerativeAIEmbeddings = None
 chroma_client = None  # chromadb.HttpClient o PersistentClient según entorno
 text_collection = None
@@ -73,7 +74,7 @@ sql_database: SQLDatabase = None  # None si DATABASE_URL no está configurada
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa clientes al arrancar. Se ejecuta una sola vez."""
-    global rag_llm, optimizer_llm, answer_llm, embeddings_model
+    global rag_llm, optimizer_llm, answer_llm, judge_llm, embeddings_model
     global chroma_client, text_collection, image_collection
     global query_memory_v2_collection
     global shield_tokenizer, shield_model, sql_database
@@ -123,6 +124,17 @@ async def lifespan(app: FastAPI):
         max_output_tokens=600,
     )
     print("[startup] LangChain ChatGoogleGenerativeAI (answer) inicializado.")
+
+    # Inicializar LLM juez (LangChain, salida estructurada). Instancia propia,
+    # separada de rag_llm, para que el veredicto no herede el prompt/contexto
+    # del generador (mitiga el sesgo de self-preference).
+    judge_llm = ChatGoogleGenerativeAI(
+        model=MODEL,
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.0,
+        max_output_tokens=500,
+    )
+    print("[startup] LangChain ChatGoogleGenerativeAI (judge) inicializado.")
 
     # Inicializar embeddings (LangChain)
     embeddings_model = GoogleGenerativeAIEmbeddings(

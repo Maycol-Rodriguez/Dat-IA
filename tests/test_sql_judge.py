@@ -1,0 +1,117 @@
+from app.optimizer.query_optimizer import OptimizedQuery, QueryFilter
+from app.validation.sql_judge import SqlVerdict, judge_sql
+
+
+class _BoundFakeJudgeLlm:
+    """Simula el runnable devuelto por llm.with_structured_output(schema)."""
+
+    def __init__(self, payload: dict, schema, captured_prompts: list[str]) -> None:
+        self.payload = payload
+        self.schema = schema
+        self.captured_prompts = captured_prompts
+
+    def invoke(self, prompt: str):
+        self.captured_prompts.append(prompt)
+        return self.schema(**self.payload)
+
+
+class FakeJudgeLlm:
+    """Simula ChatGoogleGenerativeAI() antes de aplicar with_structured_output."""
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.captured_prompts: list[str] = []
+
+    def with_structured_output(self, schema):
+        return _BoundFakeJudgeLlm(self.payload, schema, self.captured_prompts)
+
+
+def _optimized_query(**overrides) -> OptimizedQuery:
+    defaults = dict(
+        original_question="Que transportista tiene el mayor promedio de retraso?",
+        normalized_question="promedio de retraso por transportista",
+        intent="aggregation",
+        operation="average",
+        metrics=["delay_days"],
+        filters=[QueryFilter(field="state", operator="=", value="SP")],
+        date_range={"start_date": "2018-01-01", "end_date": "2018-12-31"},
+        group_by=["carrier_name"],
+        context=["logistica"],
+        suggested_tables=["carriers"],
+        optimizer="rule_based",
+    )
+    defaults.update(overrides)
+    return OptimizedQuery(**defaults)
+
+
+def test_judge_sql_passes_llm_payload_through_to_verdict() -> None:
+    payload = {
+        "issues": [],
+        "is_valid": True,
+        "answers_question": True,
+        "suggested_fix": "",
+        "confidence": 0.95,
+    }
+    llm = FakeJudgeLlm(payload)
+
+    verdict = judge_sql(
+        _optimized_query(),
+        "SELECT carrier_name, AVG(delay_days) FROM carriers GROUP BY carrier_name;",
+        llm,
+    )
+
+    assert isinstance(verdict, SqlVerdict)
+    assert verdict.is_valid is True
+    assert verdict.answers_question is True
+    assert verdict.confidence == 0.95
+
+
+def test_judge_sql_can_mark_answers_question_false_independent_of_is_valid() -> None:
+    payload = {
+        "issues": ["Agrupa por dia (created_at::date) en vez de por mes."],
+        "is_valid": True,
+        "answers_question": False,
+        "suggested_fix": "Cambia GROUP BY created_at::date por GROUP BY DATE_TRUNC('month', created_at).",
+        "confidence": 0.8,
+    }
+    llm = FakeJudgeLlm(payload)
+
+    verdict = judge_sql(
+        _optimized_query(operation="temporal_trend", group_by=["month"]),
+        "SELECT created_at::date, COUNT(*) FROM orders GROUP BY created_at::date;",
+        llm,
+    )
+
+    assert verdict.is_valid is True
+    assert verdict.answers_question is False
+    assert verdict.issues
+
+
+def test_judge_sql_includes_optimized_query_fields_in_prompt() -> None:
+    payload = {
+        "issues": [],
+        "is_valid": True,
+        "answers_question": True,
+        "suggested_fix": "",
+        "confidence": 1.0,
+    }
+    llm = FakeJudgeLlm(payload)
+    sql = "SELECT carrier_name, AVG(delay_days) FROM carriers GROUP BY carrier_name;"
+
+    judge_sql(_optimized_query(), sql, llm)
+
+    prompt = llm.captured_prompts[0]
+    assert "average" in prompt
+    assert "delay_days" in prompt
+    assert "carrier_name" in prompt
+    assert "2018-01-01" in prompt
+    assert sql in prompt
+
+
+def test_judge_sql_does_not_receive_ddl_or_memory_examples() -> None:
+    import inspect
+
+    signature = inspect.signature(judge_sql)
+
+    assert "ddl" not in signature.parameters
+    assert "memory_examples" not in signature.parameters
