@@ -1557,6 +1557,101 @@ def test_query_answer_executes_sql_with_limit_enforced_by_validator(monkeypatch)
     assert executed_sql["sql"] == response.json()["sql"]
 
 
+def test_query_answer_warns_when_result_is_truncated(monkeypatch) -> None:
+    from app.validation.sql_validator import DEFAULT_ROW_LIMIT
+
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    truncated_rows = [
+        {"carrier_name": f"carrier_{i}", "on_time_rate": 0.9}
+        for i in range(DEFAULT_ROW_LIMIT)
+    ]
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": truncated_rows},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows, strict_numbers=False: "Hay varios transportistas con buen cumplimiento.",
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+    assert any("truncó" in warning for warning in body["warnings"])
+
+
+def test_query_answer_retries_synthesis_once_when_answer_is_not_grounded(monkeypatch) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]},
+    )
+
+    calls = []
+
+    def fake_synthesize_answer(llm, question, sql, rows, strict_numbers=False):
+        calls.append(strict_numbers)
+        if not strict_numbers:
+            return "El transportista con mejor cumplimiento es DHL con 452 pedidos."
+        return "El transportista con mejor cumplimiento es DHL con 0.97 de tasa."
+
+    monkeypatch.setattr(main_module, "synthesize_answer", fake_synthesize_answer)
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert calls == [False, True]
+    assert body["answer"] == "El transportista con mejor cumplimiento es DHL con 0.97 de tasa."
+    assert body["warnings"] == []
+
+
+def test_query_answer_adds_warning_when_answer_stays_ungrounded_after_retry(monkeypatch) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows, strict_numbers=False: (
+            "El transportista con mejor cumplimiento es DHL con 452 pedidos."
+        ),
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+    assert any("cifras" in warning for warning in body["warnings"])
+
+
 def test_query_answer_marks_matching_memory_without_duplicate(
     monkeypatch,
 ) -> None:

@@ -1,0 +1,116 @@
+"""Guardrail ligero sobre el resultado ejecutado y la redacción final.
+
+El SQL ya pasó el validador determinístico y el juez (Clases 2-3) antes de
+ejecutarse. Lo que queda sin cubrir ocurre después: `execute_sql` puede
+truncar filas en silencio o devolver una métrica en NULL, y el LLM que
+redacta la respuesta en lenguaje natural puede inventar o redondear
+números que no están en las filas.
+
+Deliberadamente NO es un segundo juez semántico: eso duplicaría el trabajo
+de `sql_judge` y añadiría otra llamada cara antes de responder. Son
+chequeos deterministicos sobre las filas (`check_result`) más una
+verificación de groundedness barata sobre el texto (`check_groundedness`),
+sin LLM en la primera pasada.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from app.optimizer.query_optimizer import OptimizedQuery
+from app.validation.sql_validator import DEFAULT_ROW_LIMIT
+
+
+@dataclass(frozen=True)
+class ResultCheck:
+    """Señales de alerta detectadas mirando solo las filas, sin LLM."""
+
+    ok: bool
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
+class GroundednessCheck:
+    """Números del texto redactado que no aparecen entre los valores de las filas."""
+
+    ok: bool
+    unsupported_numbers: list[str]
+
+
+def check_result(
+    rows: list[dict],
+    optimized_query: OptimizedQuery,
+    row_limit: int = DEFAULT_ROW_LIMIT,
+) -> ResultCheck:
+    """Detecta resultado vacío, métrica en NULL o truncación silenciosa.
+
+    Args:
+        rows: filas devueltas por `execute_sql`.
+        optimized_query: para saber qué columnas son métricas a verificar.
+        row_limit: el mismo tope pasado a `execute_sql`; si `len(rows)`
+            lo iguala, es señal de que probablemente hay más filas de las
+            mostradas (la truncación de `execute_sql` es silenciosa). Usa
+            el mismo `DEFAULT_ROW_LIMIT` que ya acota el SQL en
+            `validate_sql`, para que ambos topes no diverjan.
+
+    Returns:
+        `ResultCheck` con `ok=True` solo si no hay ninguna advertencia.
+        Las advertencias no bloquean la respuesta, solo la marcan.
+    """
+    warnings: list[str] = []
+
+    if not rows:
+        warnings.append("La consulta no devolvió filas.")
+
+    if len(rows) == row_limit:
+        warnings.append(
+            f"El resultado se truncó a {row_limit} filas; puede haber más datos."
+        )
+
+    for metric in optimized_query.metrics:
+        if rows and all(row.get(metric) is None for row in rows):
+            warnings.append(f"La métrica '{metric}' vino vacía en todas las filas.")
+
+    return ResultCheck(ok=not warnings, warnings=warnings)
+
+
+def check_groundedness(
+    answer: str,
+    rows: list[dict],
+    tolerance: float = 0.01,
+) -> GroundednessCheck:
+    """Verifica que cada número del texto exista entre los valores de las filas.
+
+    Extrae números del texto con una regex y los compara contra los
+    valores numéricos de `rows`, con tolerancia de redondeo. Tiene falsos
+    positivos esperables (números de fila, conteos, porcentajes derivados
+    de dos columnas): por diseño es una señal de sospecha para disparar
+    una única regeneración de la redacción, no un bloqueo automático.
+
+    Args:
+        answer: texto redactado por `synthesize_answer`.
+        rows: filas reales que `answer` debería estar describiendo.
+        tolerance: fracción de tolerancia relativa al comparar (0.01 = 1%).
+
+    Returns:
+        `GroundednessCheck` con los números del texto que no encontraron
+        respaldo en `rows`.
+    """
+    numbers_in_answer = re.findall(r"\d+[.,]?\d*", answer)
+    row_values = {
+        round(float(value), 2)
+        for row in rows
+        for value in row.values()
+        if isinstance(value, (int, float))
+    }
+
+    unsupported = []
+    for raw in numbers_in_answer:
+        candidate = float(raw.replace(",", ""))
+        if not any(
+            abs(candidate - v) <= tolerance * max(abs(v), 1) for v in row_values
+        ):
+            unsupported.append(raw)
+
+    return GroundednessCheck(ok=not unsupported, unsupported_numbers=unsupported)

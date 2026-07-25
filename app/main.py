@@ -28,6 +28,7 @@ from app.memory.query_memory_v2 import (
 )
 
 from app.optimizer.query_optimizer import OptimizedQuery, optimize_query
+from app.validation.result_guardrail import check_groundedness, check_result
 from app.validation.sql_judge import SqlVerdict, judge_sql
 from app.validation.sql_validator import validate_sql
 
@@ -1154,18 +1155,38 @@ def classify_shield(text_input: str) -> tuple[str, float]:
     return label, score
 
 
-def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
+def synthesize_answer(
+    llm,
+    question: str,
+    sql: str,
+    rows: list[dict],
+    strict_numbers: bool = False,
+) -> str:
     """Sintetiza una respuesta en lenguaje natural a partir del resultado SQL.
 
     Responde siempre en español, sin importar el idioma de la pregunta
     original (mismo criterio que optimize_query para normalized_question).
+
+    Args:
+        strict_numbers: `True` en la regeneración que dispara
+            `check_groundedness` cuando la primera redacción incluyó
+            números sin respaldo en `rows`. Endurece la instrucción del
+            prompt en vez de abrir un bucle de reintento nuevo.
     """
+    strict_instruction = ""
+    if strict_numbers:
+        strict_instruction = """
+    Tu respuesta anterior incluyó números que no coinciden exactamente
+    con el resultado. Copia los valores numéricos tal cual aparecen en
+    el resultado, sin redondear ni calcular cifras nuevas.
+    """
+
     prompt = f"""
     Eres un analista de datos. Responde la pregunta del usuario en español,
     de forma clara y concisa, usando exclusivamente el resultado de la
     consulta SQL de abajo. Menciona el número de filas si es relevante.
     No inventes datos que no estén en el resultado.
-
+    {strict_instruction}
     Pregunta: {question}
     SQL ejecutado: {sql}
     Resultado ({len(rows)} filas): {rows}
@@ -1601,12 +1622,35 @@ async def query_answer(request: QueryRequest):
         )
 
     rows = execution["rows"]
+    result_check = check_result(rows, optimized_query)
+
     answer_text = synthesize_answer(
         answer_llm,
         request.question,
         rag_response.sql,
         rows,
     )
+    groundedness = check_groundedness(answer_text, rows)
+
+    if not groundedness.ok:
+        # Una sola regeneración con instrucción estricta, no un bucle nuevo:
+        # si el número inventado persiste, se entrega igual con warnings.
+        answer_text = synthesize_answer(
+            answer_llm,
+            request.question,
+            rag_response.sql,
+            rows,
+            strict_numbers=True,
+        )
+        groundedness = check_groundedness(answer_text, rows)
+
+    warnings = list(result_check.warnings)
+    if not groundedness.ok:
+        warnings.append(
+            "La respuesta pudo incluir cifras que no coinciden exactamente con el resultado."
+        )
+
+    is_fully_validated = result_check.ok and groundedness.ok
 
     formatted_table = ResultTable(
         **format_result_table(rows)
@@ -1637,7 +1681,7 @@ async def query_answer(request: QueryRequest):
             sql=rag_response.sql,
             sources=rag_response.sources,
             status="success",
-            validated=True,
+            validated=is_fully_validated,
             execution_status="success",
         )
 
@@ -1649,6 +1693,7 @@ async def query_answer(request: QueryRequest):
         status="success",
         table=formatted_table,
         attempts=attempts,
+        warnings=warnings,
     )
 
 
