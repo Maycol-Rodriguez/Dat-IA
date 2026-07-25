@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 6 · Agente con LangGraph — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 6 de 7</span>
+    <h1>De pipeline a agente conversacional con LangGraph</h1>
+    <p class="lede">
+      Las Clases 2 a 5 le dieron al pipeline un ciclo de validación y reintento — pero sigue
+      siendo <em>stateless</em>: cada request de <code>/query/answer</code> no sabe nada de la
+      anterior. Esta clase envuelve ese mismo pipeline (sin reescribirlo) en un grafo con estado
+      para que la interacción se sienta como una conversación.
+    </p>
+
+    <h2>1. El problema</h2>
+    <p>
+      Un usuario pregunta "¿Cuál fue el ingreso total por mes en 2018?", recibe la respuesta, y
+      luego pregunta "¿y en 2017?". Hoy esa segunda pregunta llega sola a
+      <code>optimize_query</code> (<code>app/optimizer/query_optimizer.py:83</code>): no hay
+      "ingreso total por mes" en ningún lado, solo "2017". El optimizer no tiene forma de saber
+      que el usuario quiere repetir la misma métrica con otro año — cada request es una isla.
+    </p>
+
+    <h2>2. El concepto desde cero: qué es un grafo de estados</h2>
+    <p>
+      <a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a>
+      es una librería para construir flujos como un grafo explícito en vez de una secuencia de
+      llamadas a función. Tres piezas:
+    </p>
+    <ul>
+      <li><strong>Nodo</strong>: una función que recibe el estado actual y devuelve un
+        <em>delta</em> (los campos que cambia). No devuelve el estado completo, solo lo nuevo.</li>
+      <li><strong>Arista</strong>: la conexión que dice "después de este nodo, ve a este otro".</li>
+      <li><strong>Arista condicional</strong>: una función que, dado el estado, decide a cuál de
+        varios nodos ir. Es lo que hace posible ciclos (volver a generar SQL) y ramas
+        (clarificar en vez de responder).</li>
+    </ul>
+    <p>
+      La diferencia con el pipeline actual no es filosófica, es práctica: hoy
+      <code>/query/answer</code> es una secuencia fija de llamadas a función en Python. Con
+      LangGraph, la misma secuencia se declara como grafo, lo que permite dos cosas que un
+      <code>for</code> lineal no da gratis: <strong>persistencia de estado entre llamadas</strong>
+      (necesaria para conversación) y <strong>visualización/trazabilidad</strong> de cada paso.
+    </p>
+
+    <h3>El estado: qué viaja entre nodos</h3>
+    <p>
+      Se define como un <code>TypedDict</code>. <code>messages</code> usa el reducer
+      <code>add_messages</code>, que en vez de sobrescribir la lista, <strong>anexa</strong> los
+      mensajes nuevos — así el historial de la conversación se acumula automáticamente turno a
+      turno.
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/agent/graph.py — estado del grafo</div>
+      <pre><code><span class="tok-kw">from</span> typing <span class="tok-kw">import</span> Annotated, TypedDict
+<span class="tok-kw">from</span> langgraph.graph.message <span class="tok-kw">import</span> add_messages
+
+<span class="tok-kw">class</span> <span class="tok-fn">DatIAState</span>(TypedDict):
+    messages: Annotated[<span class="tok-fn">list</span>, add_messages]
+    question: <span class="tok-fn">str</span>
+    resolved_question: <span class="tok-fn">str</span>
+    optimized: OptimizedQuery | <span class="tok-kw">None</span>
+    ddl: <span class="tok-fn">str</span>
+    allowed_tables: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>]
+    sql: <span class="tok-fn">str</span>
+    verdict: SqlVerdict | <span class="tok-kw">None</span>
+    rows: <span class="tok-fn">list</span>[<span class="tok-fn">dict</span>]
+    answer: <span class="tok-fn">str</span>
+    attempts: <span class="tok-fn">int</span>
+    needs_clarification: <span class="tok-fn">bool</span></code></pre>
+    </div>
+
+    <h3>Los nodos: el pipeline existente, envuelto, no reescrito</h3>
+    <p>
+      Cada nodo es una función delgada que llama al código que ya existe y lo adapta a la forma
+      "recibe estado, devuelve delta". No se reimplementa ninguna lógica de negocio:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/agent/graph.py — nodos como envoltorios finos</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">optimize_node</span>(state: DatIAState) -&gt; <span class="tok-fn">dict</span>:
+    optimized = optimize_query(state[<span class="tok-str">"resolved_question"</span>], llm=optimizer_llm)
+    <span class="tok-kw">return</span> {<span class="tok-str">"optimized"</span>: optimized}
+
+<span class="tok-kw">def</span> <span class="tok-fn">retrieve_ddl_node</span>(state: DatIAState) -&gt; <span class="tok-fn">dict</span>:
+    resp = retrieve_ddl_context(
+        text_collection,
+        state[<span class="tok-str">"optimized"</span>].normalized_question,
+        suggested_tables=state[<span class="tok-str">"optimized"</span>].suggested_tables,
+    )
+    <span class="tok-kw">return</span> {<span class="tok-str">"ddl"</span>: resp.ddl, <span class="tok-str">"allowed_tables"</span>: resp.tabla}
+
+<span class="tok-kw">def</span> <span class="tok-fn">generate_sql_node</span>(state: DatIAState) -&gt; <span class="tok-fn">dict</span>:
+    rag_response, verdict, attempts = generate_validated_sql(
+        state[<span class="tok-str">"resolved_question"</span>], state[<span class="tok-str">"ddl"</span>], state[<span class="tok-str">"optimized"</span>], state[<span class="tok-str">"allowed_tables"</span>],
+    )
+    <span class="tok-kw">return</span> {<span class="tok-str">"sql"</span>: rag_response.sql, <span class="tok-str">"verdict"</span>: verdict, <span class="tok-str">"attempts"</span>: attempts}
+
+<span class="tok-com"># execute_node envuelve execute_sql, synthesize_node envuelve synthesize_answer,
+# guardrail_node envuelve check_result/check_groundedness (Clase 5), etc.</span></code></pre>
+    </div>
+
+    <p>El resto de nodos (<code>shield_node</code>, <code>memory_lookup_node</code>,
+      <code>execute_node</code>, <code>guardrail_node</code>, <code>synthesize_node</code>,
+      <code>save_memory_node</code>) siguen el mismo patrón: envuelven
+      <code>classify_shield</code>, <code>_search_query_memory_v2_examples</code>,
+      <code>execute_sql</code>, los chequeos de la Clase 5, <code>synthesize_answer</code> y
+      <code>upsert_query_memory_v2</code> respectivamente, sin cambiar su lógica interna.</p>
+
+    <h3>Aristas condicionales: dónde aparecen los ciclos y las ramas</h3>
+    <p>
+      Son funciones que devuelven el nombre del siguiente nodo según el estado. El bucle de la
+      Clase 4 (generar → validar → juzgar → regenerar) ya vive dentro de
+      <code>generate_validated_sql</code> como un <code>for</code> interno — no hace falta un
+      ciclo de grafo para eso. Donde el ciclo/rama de LangGraph sí aporta es en decisiones de
+      alto nivel: si la pregunta necesita aclaración, si ejecutar falló y hay que regenerar.
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/agent/graph.py — arista condicional de ruteo</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">route_after_optimize</span>(state: DatIAState) -&gt; <span class="tok-fn">str</span>:
+    optimized = state[<span class="tok-str">"optimized"</span>]
+    <span class="tok-kw">if</span> <span class="tok-kw">not</span> optimized.metrics <span class="tok-kw">and</span> <span class="tok-kw">not</span> optimized.date_range:
+        <span class="tok-kw">return</span> <span class="tok-str">"clarify"</span>
+    <span class="tok-kw">return</span> <span class="tok-str">"retrieve_ddl"</span>
+
+graph.add_conditional_edges(<span class="tok-str">"optimize"</span>, route_after_optimize, {
+    <span class="tok-str">"clarify"</span>: <span class="tok-str">"clarify"</span>,
+    <span class="tok-str">"retrieve_ddl"</span>: <span class="tok-str">"retrieve_ddl"</span>,
+})</code></pre>
+    </div>
+
+    <h3>Checkpointer y <code>thread_id</code>: qué persiste y dónde</h3>
+    <p>
+      El checkpointer es lo que guarda el <code>DatIAState</code> completo después de cada nodo,
+      indexado por un <code>thread_id</code> — el identificador de una conversación. En
+      desarrollo, <code>MemorySaver</code> guarda todo en memoria de proceso (se pierde al
+      reiniciar). En producción, <code>PostgresSaver</code> persiste contra la misma Supabase que
+      ya usa <code>create_db_engine</code> (<code>app/db/connect_db.py</code>), así la
+      conversación sobrevive a un reinicio del contenedor.
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/agent/graph.py — compilar el grafo con checkpointer</div>
+      <pre><code><span class="tok-kw">from</span> langgraph.checkpoint.memory <span class="tok-kw">import</span> MemorySaver
+<span class="tok-kw">from</span> langgraph.graph <span class="tok-kw">import</span> StateGraph, START, END
+
+graph = StateGraph(DatIAState)
+graph.add_node(<span class="tok-str">"resolve_question"</span>, resolve_question_node)
+graph.add_node(<span class="tok-str">"shield"</span>, shield_node)
+graph.add_node(<span class="tok-str">"optimize"</span>, optimize_node)
+graph.add_node(<span class="tok-str">"clarify"</span>, clarify_node)
+graph.add_node(<span class="tok-str">"retrieve_ddl"</span>, retrieve_ddl_node)
+graph.add_node(<span class="tok-str">"generate_sql"</span>, generate_sql_node)
+graph.add_node(<span class="tok-str">"execute"</span>, execute_node)
+graph.add_node(<span class="tok-str">"guardrail"</span>, guardrail_node)
+graph.add_node(<span class="tok-str">"synthesize"</span>, synthesize_node)
+graph.add_node(<span class="tok-str">"save_memory"</span>, save_memory_node)
+
+graph.add_edge(START, <span class="tok-str">"resolve_question"</span>)
+graph.add_edge(<span class="tok-str">"resolve_question"</span>, <span class="tok-str">"shield"</span>)
+graph.add_edge(<span class="tok-str">"shield"</span>, <span class="tok-str">"optimize"</span>)
+<span class="tok-com"># ... conditional edges de route_after_optimize y route_after_execute ...</span>
+graph.add_edge(<span class="tok-str">"save_memory"</span>, END)
+
+<span class="tok-com"># En el lifespan de app/main.py, junto a los demás clientes globales:</span>
+checkpointer = MemorySaver()
+compiled_graph = graph.compile(checkpointer=checkpointer)</code></pre>
+    </div>
+
+    <h3>Reescritura de referencias: el nodo que hace que se sienta conversacional</h3>
+    <p>
+      "¿Y en 2018?" solo tiene sentido junto al mensaje anterior. El nodo
+      <code>resolve_question</code> corre <em>antes</em> del optimizer: toma
+      <code>state["messages"]</code> (el historial que persiste el checkpointer) y la pregunta
+      cruda, y le pide a un LLM que produzca una pregunta autónoma y completa.
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/agent/graph.py — resolve_question_node</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">resolve_question_node</span>(state: DatIAState) -&gt; <span class="tok-fn">dict</span>:
+    <span class="tok-kw">if</span> <span class="tok-fn">len</span>(state[<span class="tok-str">"messages"</span>]) &lt;= 1:
+        <span class="tok-kw">return</span> {<span class="tok-str">"resolved_question"</span>: state[<span class="tok-str">"question"</span>]}  <span class="tok-com"># primer turno, nada que resolver</span>
+
+    prompt = <span class="tok-kw">f</span><span class="tok-str">"""
+Dado este historial de conversación y la nueva pregunta del usuario,
+reescribe la nueva pregunta para que sea autónoma y completa, sin
+depender del contexto previo.
+
+Historial: {state['messages'][-4:]}
+Nueva pregunta: {state['question']}
+"""</span>
+    resolved = optimizer_llm.invoke(prompt).content
+    <span class="tok-kw">return</span> {<span class="tok-str">"resolved_question"</span>: resolved}</code></pre>
+    </div>
+
+    <h3>Clarificación: cuándo preguntar en vez de adivinar</h3>
+    <p>
+      El nodo <code>clarify</code> corta el pipeline antes de gastar una llamada de generación de
+      SQL cuando la pregunta optimizada no trae ni métrica ni filtro reconocible — señal de que
+      adivinar produciría una respuesta plausible pero probablemente incorrecta. Es mejor
+      interrumpir con "¿te refieres a ingresos, pedidos o algo más?" que forzar una respuesta.
+    </p>
+
+    <h2>3. El endpoint nuevo: <code>/chat</code></h2>
+    <p>
+      Convive con <code>/query/answer</code>, que se queda como API stateless (útil para
+      integraciones que no necesitan memoria conversacional). <code>/chat</code> recibe
+      <code>thread_id</code> explícito:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — endpoint /chat (nuevo)</div>
+      <pre><code><span class="tok-kw">class</span> <span class="tok-fn">ChatRequest</span>(BaseModel):
+    question: <span class="tok-fn">str</span> = Field(..., min_length=1)
+    thread_id: <span class="tok-fn">str</span>
+
+<span class="tok-kw">@app</span>.post(<span class="tok-str">"/chat"</span>)
+<span class="tok-kw">async</span> <span class="tok-kw">def</span> <span class="tok-fn">chat</span>(request: ChatRequest):
+    config = {<span class="tok-str">"configurable"</span>: {<span class="tok-str">"thread_id"</span>: request.thread_id}}
+    result = <span class="tok-kw">await</span> compiled_graph.ainvoke(
+        {<span class="tok-str">"question"</span>: request.question, <span class="tok-str">"messages"</span>: [{<span class="tok-str">"role"</span>: <span class="tok-str">"user"</span>, <span class="tok-str">"content"</span>: request.question}]},
+        config=config,
+    )
+    <span class="tok-kw">return</span> {<span class="tok-str">"answer"</span>: result[<span class="tok-str">"answer"</span>], <span class="tok-str">"sql"</span>: result[<span class="tok-str">"sql"</span>], <span class="tok-str">"needs_clarification"</span>: result[<span class="tok-str">"needs_clarification"</span>]}</code></pre>
+    </div>
+
+    <p>
+      El grafo se compila una vez en el <code>lifespan</code> actual (<code>app/main.py:73</code>),
+      junto a los demás clientes globales — mismo patrón que ya usa la app para
+      <code>rag_llm</code>, <code>chroma_client</code>, etc. Para streaming de la respuesta en
+      tiempo real, LangGraph expone <code>.astream()</code>; un <code>/chat/stream</code> con
+      Server-Sent Events queda como extensión natural (Clase 7).
+    </p>
+
+    <h2>4. Errores comunes</h2>
+    <ul>
+      <li><strong>Reescribir la lógica de negocio dentro de los nodos.</strong> Un nodo que
+        duplica lo que ya hace <code>build_rag_response</code> en vez de llamarlo introduce dos
+        fuentes de verdad. Los nodos deben ser delgados.</li>
+      <li><strong>Olvidar el reducer <code>add_messages</code>.</strong> Sin él, cada nodo que
+        toque <code>messages</code> sobrescribe el historial completo en vez de anexar — se
+        pierde la conversación turno a turno.</li>
+      <li><strong><code>MemorySaver</code> en producción.</strong> Es solo para desarrollo: vive
+        en el proceso, se pierde al reiniciar el contenedor. Producción necesita
+        <code>PostgresSaver</code> u otro backend persistente.</li>
+      <li><strong>No poner límite a los ciclos del grafo.</strong> Igual que el bucle manual de
+        la Clase 4 necesita <code>max_attempts</code>, cualquier ciclo a nivel de grafo (por
+        ejemplo, reintentar ejecución tras un fallo) necesita un contador en el estado para no
+        entrar en un ciclo infinito.</li>
+    </ul>
+
+    <h2>5. Checklist de implementación</h2>
+    <ul class="checklist">
+      <li><span class="box"></span> <code>uv add langgraph</code> (y
+        <code>langgraph-checkpoint-postgres</code> si se persiste contra Supabase).</li>
+      <li><span class="box"></span> Definir <code>DatIAState</code> en
+        <code>app/agent/graph.py</code>.</li>
+      <li><span class="box"></span> Escribir los nodos como envoltorios de las funciones
+        existentes (<code>optimize_query</code>, <code>retrieve_ddl_context</code>,
+        <code>generate_validated_sql</code>, <code>execute_sql</code>,
+        <code>check_result</code>/<code>check_groundedness</code>, <code>synthesize_answer</code>,
+        <code>upsert_query_memory_v2</code>).</li>
+      <li><span class="box"></span> Implementar <code>resolve_question_node</code> y
+        <code>clarify_node</code> como los únicos nodos genuinamente nuevos.</li>
+      <li><span class="box"></span> Compilar el grafo en el <code>lifespan</code> con
+        <code>MemorySaver</code> para desarrollo.</li>
+      <li><span class="box"></span> Añadir el endpoint <code>/chat</code> con
+        <code>thread_id</code>, dejando <code>/query/answer</code> intacto.</li>
+      <li><span class="box"></span> Tests: dos turnos con el mismo <code>thread_id</code> donde el
+        segundo depende del primero ("¿y en 2017?"); un caso que dispara
+        <code>clarify</code>.</li>
+    </ul>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Qué hace posible que "¿y en 2018?" se resuelva correctamente en
+          este diseño? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">El nodo <code>resolve_question</code>, que corre antes del optimizer
+          y usa el historial persistido por el checkpointer (<code>state["messages"]</code>)
+          para reescribir la pregunta corta en una pregunta autónoma y completa antes de que
+          <code>optimize_query</code> la procese.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué <code>MemorySaver</code> no es apto para producción?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque guarda el estado en memoria del proceso Python — se pierde por
+          completo si el contenedor se reinicia o se despliega una nueva versión. Producción
+          necesita un checkpointer persistente como <code>PostgresSaver</code>, respaldado por
+          una base de datos real.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué los nodos del grafo llaman a
+          <code>optimize_query</code>/<code>execute_sql</code>/etc. en vez de reimplementar esa
+          lógica? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Para no duplicar la lógica de negocio en dos lugares. Los nodos son
+          envoltorios delgados que adaptan las funciones ya probadas del pipeline a la forma
+          "recibe estado, devuelve delta" que exige LangGraph — el comportamiento de negocio no
+          cambia, solo la orquestación alrededor.</div>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a href="clase-5-guardrail-resultados.html">
+        <span class="dir">← Anterior</span>
+        <span class="title">Clase 5: Guardrail de resultados</span>
+      </a>
+      <a class="next" href="clase-7-que-mas-anadir.html">
+        <span class="dir">Siguiente →</span>
+        <span class="title">Clase 7: Qué más añadir</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>

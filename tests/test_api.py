@@ -13,6 +13,7 @@ from app.main import (
     query_embeddings,
     synthesize_answer,
 )
+from app.optimizer.query_optimizer import OptimizedQuery
 
 
 client = TestClient(app)
@@ -53,6 +54,31 @@ def test_query_answer_route_uses_langsmith_traceable_wrapper() -> None:
         route.endpoint.__traceable_config__["metadata"]["operation"]
         == "api_query_answer"
     )
+
+
+def test_evaluator_optimizer_functions_are_traceable() -> None:
+    """El bucle de autocorrección y sus etapas deben quedar trazados en
+    LangSmith igual que el resto del pipeline (Clase 4/5 del curso), no
+    solo el endpoint de nivel superior.
+    """
+    from app import main as main_module
+
+    expected_operations = {
+        "generate_validated_sql": "sql_validation_loop",
+        "validate_sql_stage": "sql_static_validation",
+        "judge_sql_stage": "sql_judgement",
+        "check_result_stage": "result_guardrail",
+        "check_groundedness_stage": "groundedness_check",
+    }
+
+    for function_name, expected_operation in expected_operations.items():
+        function = getattr(main_module, function_name)
+
+        assert getattr(function, "__langsmith_traceable__", False) is True
+        assert (
+            function.__traceable_config__["metadata"]["operation"]
+            == expected_operation
+        )
 
 
 def test_ready_returns_database_not_configured() -> None:
@@ -612,6 +638,42 @@ def test_build_rag_response_returns_llm_output(monkeypatch) -> None:
     assert "carriers" in fake_llm.last_prompt
 
 
+def test_build_rag_response_includes_optimizer_structure_in_prompt(monkeypatch) -> None:
+    from app import main as main_module
+
+    fake_response = RAGResponse(
+        sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
+        sources="carriers",
+        confidence_note="Usa la métrica on_time_rate.",
+        status="success",
+    )
+    fake_llm = FakeRagLlm(fake_response)
+    monkeypatch.setattr(main_module, "rag_llm", fake_llm)
+
+    optimized_query = OptimizedQuery(
+        original_question="Que transportista tiene mejor cumplimiento?",
+        normalized_question="Listar transportistas ordenados por mayor tasa de cumplimiento.",
+        intent="ranking",
+        operation="rank_desc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        suggested_tables=["carriers"],
+        optimizer="gemini",
+    )
+
+    build_rag_response(
+        "Listar transportistas ordenados por mayor tasa de cumplimiento.",
+        "CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
+        optimized_query=optimized_query,
+    )
+
+    prompt = fake_llm.last_prompt
+    assert "rank_desc" in prompt
+    assert "on_time_rate" in prompt
+    assert "carrier" in prompt
 
 
 def test_build_rag_response_includes_validated_memory_examples(
@@ -1026,9 +1088,11 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         tool_logs=None,
     ):
+        _ = optimized_query
         captured["generation_question"] = question
         captured["ddl"] = ddl
 
@@ -1110,10 +1174,11 @@ def _mock_query_json_memory_pipeline(
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         tool_logs=None,
     ):
-        _ = question, ddl, memory_examples, tool_logs
+        _ = question, ddl, optimized_query, memory_examples, tool_logs
         return main_module.RAGResponse(
             sql=rag_sql,
             sources=rag_sources,
@@ -1412,6 +1477,14 @@ class FakeAnswerCollection:
         return 1
 
 
+class FakeSqlDatabase:
+    """Simula SQLDatabase solo para el dry-run de validate_sql (nunca falla EXPLAIN)."""
+
+    def run_no_throw(self, sql: str, fetch: str = "cursor"):
+        _ = sql, fetch
+        return None
+
+
 def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
     from app import main as main_module
 
@@ -1427,14 +1500,26 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
+        feedback=None,
     ):
-        _ = question, ddl, memory_examples
+        _ = question, ddl, optimized_query, memory_examples, feedback
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
             sources="carriers",
             confidence_note="Usa la métrica on_time_rate.",
             status="success",
+        )
+
+    def fake_judge_sql(optimized_query, sql, llm):
+        _ = optimized_query, sql, llm
+        return main_module.SqlVerdict(
+            issues=[],
+            is_valid=True,
+            answers_question=True,
+            suggested_fix="",
+            confidence=1.0,
         )
 
     monkeypatch.setattr(main_module, "classify_shield", lambda text: (shield_label, 0.99))
@@ -1445,9 +1530,10 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
         "query_memory_v2_collection",
         None,
     )
-    monkeypatch.setattr(main_module, "sql_database", object())
+    monkeypatch.setattr(main_module, "sql_database", FakeSqlDatabase())
     monkeypatch.setattr(main_module, "query_embeddings", fake_query_embeddings)
     monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response)
+    monkeypatch.setattr(main_module, "judge_sql", fake_judge_sql)
 
 
 def test_query_answer_blocks_malicious_input(monkeypatch) -> None:
@@ -1511,9 +1597,145 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
         "locale": "es_PE",
     }
 
-    assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;"
+    # Sin ";" final: es el SQL reserializado por validate_sql (sqlglot),
+    # con el LIMIT ya acotado, no el string crudo del generador.
+    assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1"
 
 
+def test_query_answer_executes_sql_with_limit_enforced_by_validator(monkeypatch) -> None:
+    """El SQL sin LIMIT del generador no debe llegar tal cual a execute_sql."""
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    def fake_build_rag_response_without_limit(
+        question, ddl, optimized_query=None, memory_examples=None, feedback=None
+    ):
+        _ = question, ddl, optimized_query, memory_examples, feedback
+        return main_module.RAGResponse(
+            sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;",
+            sources="carriers",
+            confidence_note="",
+            status="success",
+        )
+
+    executed_sql = {}
+
+    def fake_execute_sql(db, sql, row_limit=200):
+        executed_sql["sql"] = sql
+        return {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]}
+
+    monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response_without_limit)
+    monkeypatch.setattr(main_module, "execute_sql", fake_execute_sql)
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows: "El transportista con mejor cumplimiento es DHL.",
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+
+    assert response.status_code == 200
+    assert "LIMIT 200" in executed_sql["sql"]
+    assert executed_sql["sql"] == response.json()["sql"]
+
+
+def test_query_answer_warns_when_result_is_truncated(monkeypatch) -> None:
+    from app.validation.sql_validator import DEFAULT_ROW_LIMIT
+
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    truncated_rows = [
+        {"carrier_name": f"carrier_{i}", "on_time_rate": 0.9}
+        for i in range(DEFAULT_ROW_LIMIT)
+    ]
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": truncated_rows},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows, strict_numbers=False: "Hay varios transportistas con buen cumplimiento.",
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+    assert any("truncó" in warning for warning in body["warnings"])
+
+
+def test_query_answer_retries_synthesis_once_when_answer_is_not_grounded(monkeypatch) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]},
+    )
+
+    calls = []
+
+    def fake_synthesize_answer(llm, question, sql, rows, strict_numbers=False):
+        calls.append(strict_numbers)
+        if not strict_numbers:
+            return "El transportista con mejor cumplimiento es DHL con 452 pedidos."
+        return "El transportista con mejor cumplimiento es DHL con 0.97 de tasa."
+
+    monkeypatch.setattr(main_module, "synthesize_answer", fake_synthesize_answer)
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert calls == [False, True]
+    assert body["answer"] == "El transportista con mejor cumplimiento es DHL con 0.97 de tasa."
+    assert body["warnings"] == []
+
+
+def test_query_answer_adds_warning_when_answer_stays_ungrounded_after_retry(monkeypatch) -> None:
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    monkeypatch.setattr(
+        main_module,
+        "execute_sql",
+        lambda db, sql, row_limit=200: {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows, strict_numbers=False: (
+            "El transportista con mejor cumplimiento es DHL con 452 pedidos."
+        ),
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "success"
+    assert any("cifras" in warning for warning in body["warnings"])
 
 
 def test_query_answer_marks_matching_memory_without_duplicate(
@@ -1559,8 +1781,11 @@ def test_query_answer_marks_matching_memory_without_duplicate(
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
+        feedback=None,
     ):
+        _ = feedback, optimized_query
         captured["generation_question"] = question
         captured["ddl"] = ddl
         captured["memory_examples"] = memory_examples
@@ -1812,9 +2037,11 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
     def fake_build_rag_response_unknown(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
+        feedback=None,
     ):
-        _ = question, ddl, memory_examples
+        _ = question, ddl, optimized_query, memory_examples, feedback
         return main_module.RAGResponse(
             sql="I do not know",
             sources="",

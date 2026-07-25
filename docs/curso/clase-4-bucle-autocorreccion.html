@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 4 · Bucle de autocorrección — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 4 de 7</span>
+    <h1>El bucle de auto-corrección (evaluator-optimizer)</h1>
+    <p class="lede">
+      Con el validador determinístico (Clase 2) y el juez LLM (Clase 3) ya se puede detectar que
+      un SQL está mal. Falta la pieza que los conecta: qué hacer cuando algo falla. Esta clase
+      cierra el ciclo generador → crítico → regenerar, sin frameworks nuevos.
+    </p>
+
+    <h2>1. El problema</h2>
+    <p>
+      Hoy, si <code>build_rag_response</code> produce un SQL malo, no hay segunda oportunidad:
+      se ejecuta tal cual, y si Postgres lo rechaza, el usuario recibe el error crudo
+      (<code>app/main.py:1330-1336</code>). Con un validador y un juez, aparece una tercera
+      opción entre "ejecutar" y "fallar": <strong>volver a pedirle al generador que lo intente
+      de nuevo, mostrándole exactamente qué estuvo mal</strong>.
+    </p>
+
+    <h2>2. El concepto desde cero: evaluator-optimizer</h2>
+    <p>
+      Es uno de los patrones agénticos más simples y rentables: un generador produce una salida,
+      un evaluador la juzga, y si falla, el generador vuelve a intentarlo <em>con el feedback del
+      evaluador incluido en el prompt</em>. No es "pedir lo mismo otra vez" — es pedir lo mismo
+      con la información de qué falló la vez anterior, lo cual cambia mucho el resultado.
+    </p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bucle generador crítico regenerar">
+        <style>
+          .b { fill: var(--surface-subtle); stroke: var(--border); stroke-width: 1.5; rx: 10; }
+          .ba { fill: var(--accent-soft-bg); stroke: var(--accent); stroke-width: 1.5; rx: 10; }
+          .t { font-family: var(--font-sans); font-size: 13px; fill: var(--text-dark); }
+          .ts { font-family: var(--font-sans); font-size: 11px; fill: var(--text-medium); }
+          .e { stroke: var(--text-light); stroke-width: 1.5; fill: none; marker-end: url(#a2); }
+          .ec { stroke: var(--accent-link); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; marker-end: url(#a2); }
+        </style>
+        <defs>
+          <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="var(--text-light)"></path>
+          </marker>
+        </defs>
+
+        <rect x="30" y="30" width="170" height="52" class="b"></rect>
+        <text x="115" y="52" text-anchor="middle" class="t">Generar SQL</text>
+        <text x="115" y="68" text-anchor="middle" class="ts">build_rag_response</text>
+
+        <rect x="290" y="30" width="170" height="52" class="ba"></rect>
+        <text x="375" y="52" text-anchor="middle" class="t">Validar + juzgar</text>
+        <text x="375" y="68" text-anchor="middle" class="ts">Clases 2 y 3</text>
+
+        <rect x="550" y="30" width="170" height="52" class="b"></rect>
+        <text x="635" y="52" text-anchor="middle" class="t">Ejecutar</text>
+        <text x="635" y="68" text-anchor="middle" class="ts">execute_sql</text>
+
+        <rect x="290" y="130" width="170" height="52" class="b"></rect>
+        <text x="375" y="152" text-anchor="middle" class="t">Responder "no pude"</text>
+        <text x="375" y="168" text-anchor="middle" class="ts">tras 2 intentos</text>
+
+        <path d="M200,56 L290,56" class="e"></path>
+        <path d="M460,56 L550,56" class="e"></path>
+        <path d="M375,82 C 250,110 150,90 115,82" class="ec"></path>
+        <text x="140" y="118" class="ts" fill="var(--accent-link)">rechazado, attempts &lt; 2</text>
+        <path d="M375,82 L375,130" class="ec"></path>
+        <text x="330" y="110" class="ts" fill="var(--accent-link)">rechazado, attempts = 2</text>
+      </svg>
+    </div>
+
+    <h3>Por qué el límite de intentos es obligatorio, no opcional</h3>
+    <p>
+      Cada intento cuesta latencia (una llamada más al generador, otra al juez) y dinero (más
+      tokens). Y hay un límite práctico de utilidad: si el generador falló dos veces con
+      feedback específico de qué corregir, la probabilidad de que un tercer intento acierte cae
+      mucho — normalmente el problema es que el DDL recuperado no tiene la información necesaria,
+      no que el generador necesite "una oportunidad más". Por eso <code>max_attempts = 2</code>
+      es la política de Dat-IA: falla rápido y honesto en vez de insistir indefinidamente.
+    </p>
+
+    <h2>3. Cómo se implementa (sin framework)</h2>
+    <p>
+      Es un <code>for</code> con un contador, dentro de una nueva función en <code>app/main.py</code>
+      que envuelve el ciclo generar → validar → juzgar:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — generate_validated_sql (nuevo)</div>
+      <pre><code><span class="tok-kw">def</span> <span class="tok-fn">generate_validated_sql</span>(
+    question: <span class="tok-fn">str</span>,
+    ddl: <span class="tok-fn">str</span>,
+    optimized_query: OptimizedQuery,
+    allowed_tables: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>],
+    memory_examples: <span class="tok-fn">list</span>[<span class="tok-fn">dict</span>] | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+    max_attempts: <span class="tok-fn">int</span> = 2,
+) -&gt; <span class="tok-fn">tuple</span>[RAGResponse, SqlVerdict | <span class="tok-kw">None</span>, <span class="tok-fn">int</span>]:
+    <span class="tok-com">"""Genera SQL con hasta max_attempts intentos, validando y juzgando cada uno."""</span>
+    feedback: SqlVerdict | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>
+
+    <span class="tok-kw">for</span> attempt <span class="tok-kw">in</span> <span class="tok-fn">range</span>(1, max_attempts + 1):
+        rag_response = build_rag_response(question, ddl, memory_examples, feedback=feedback)
+
+        validation = validate_sql(rag_response.sql, allowed_tables, db=sql_database)
+        <span class="tok-kw">if</span> <span class="tok-kw">not</span> validation.is_valid:
+            feedback = SqlVerdict(
+                is_valid=<span class="tok-kw">False</span>, answers_question=<span class="tok-kw">False</span>,
+                issues=[validation.error], suggested_fix=<span class="tok-str">""</span>, confidence=0.0,
+            )
+            <span class="tok-kw">continue</span>
+
+        verdict = judge_sql(optimized_query, rag_response.sql, ddl)
+        <span class="tok-kw">if</span> verdict.is_valid <span class="tok-kw">and</span> verdict.answers_question:
+            <span class="tok-kw">return</span> rag_response, verdict, attempt
+
+        feedback = verdict  <span class="tok-com"># se usa en el siguiente intento</span>
+
+    <span class="tok-kw">return</span> rag_response, feedback, max_attempts  <span class="tok-com"># se agotaron los intentos</span></code></pre>
+    </div>
+
+    <h3>Cómo entra el feedback al prompt</h3>
+    <p>
+      <code>build_rag_response</code> (<code>app/main.py:889</code>) recibe un parámetro nuevo
+      opcional <code>feedback: SqlVerdict | None</code>. Cuando no es <code>None</code>, se añade
+      una sección extra al prompt existente, en el mismo estilo que ya usa la sección de memoria
+      (<code>app/main.py:919-921</code>):
+    </p>
+
+    <div class="code-block">
+      <div class="label">Sección nueva del prompt en build_rag_response</div>
+      <pre><code>### Previous attempt feedback
+Your previous SQL was rejected for these reasons:
+{feedback.issues}
+Suggested fix: {feedback.suggested_fix}
+Do not repeat the same mistake.</code></pre>
+    </div>
+
+    <h3>Salida honesta cuando no se logra</h3>
+    <p>
+      Si se agotan los intentos, <code>/query/answer</code> no debe ejecutar el último SQL "por
+      si acaso" — debe responder con transparencia qué falló, dejando el SQL candidato visible
+      para auditoría (no para que el usuario lo corra). Esto exige ampliar
+      <code>AnswerResponse</code> (<code>app/main.py:277</code>):
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — campos nuevos en AnswerResponse</div>
+      <pre><code><span class="tok-kw">class</span> <span class="tok-fn">AnswerResponse</span>(BaseModel):
+    answer: <span class="tok-fn">str</span>
+    sql: <span class="tok-fn">str</span>
+    data: <span class="tok-fn">list</span>[<span class="tok-fn">dict</span>]
+    sources: <span class="tok-fn">str</span>
+    status: <span class="tok-fn">str</span>
+    table: ResultTable | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>
+    attempts: <span class="tok-fn">int</span> = 1
+    validation: <span class="tok-fn">str</span> | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>
+    warnings: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>] = []</code></pre>
+    </div>
+
+    <h3>Efecto sobre la memoria: endurecer <code>validated=True</code></h3>
+    <p>
+      Esta es la corrección directa del hueco #2 de la portada. Hoy
+      (<code>app/main.py:1370-1377</code>) <code>validated=True</code> se otorga con solo tener
+      <code>execution_status="success"</code>. A partir de esta clase, ese flag exige <strong>las
+      tres condiciones</strong>: juez aprobado (<code>verdict.is_valid and
+      verdict.answers_question</code>), ejecución sin error, y guardrail de resultado aprobado
+      (Clase 5). Un SQL que ejecuta pero el juez rechazó nunca debe reforzarse como ejemplo
+      futuro.
+    </p>
+
+    <h2>4. Errores comunes</h2>
+    <ul>
+      <li><strong>Reintentar sin cambiar el prompt.</strong> Si el segundo intento recibe
+        exactamente el mismo prompt que el primero, es casi seguro que se repite el mismo error —
+        el feedback del juez tiene que llegar al generador.</li>
+      <li><strong>No poner límite, o ponerlo muy alto.</strong> Cada intento fallido ya reveló
+        que el problema probablemente no es "mala suerte" sino algo estructural (DDL
+        insuficiente, pregunta ambigua). Insistir más allá de 2 intentos rara vez ayuda y siempre
+        cuesta.</li>
+      <li><strong>Ejecutar el SQL del último intento aunque el juez lo haya rechazado.</strong> Es
+        preferible responder "no pude" que ejecutar algo que ya se sabe que está mal.</li>
+    </ul>
+
+    <h2>5. Checklist de implementación</h2>
+    <ul class="checklist">
+      <li><span class="box"></span> Añadir parámetro <code>feedback: SqlVerdict | None</code> a
+        <code>build_rag_response</code> y la sección de prompt correspondiente.</li>
+      <li><span class="box"></span> Implementar <code>generate_validated_sql(...)</code> en
+        <code>app/main.py</code> con el bucle <code>for</code> y <code>max_attempts=2</code>.</li>
+      <li><span class="box"></span> Ampliar <code>AnswerResponse</code> con
+        <code>attempts</code>, <code>validation</code>, <code>warnings</code>.</li>
+      <li><span class="box"></span> Endurecer la condición de <code>validated=True</code> en
+        <code>/query/answer</code> (<code>app/main.py:1370-1377</code>) para exigir juez +
+        ejecución + guardrail.</li>
+      <li><span class="box"></span> Tests: caso que falla en el intento 1 y se corrige en el 2;
+        caso que agota los 2 intentos y responde "no pude" sin ejecutar nada.</li>
+    </ul>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Qué diferencia hay entre "reintentar" y "reintentar con
+          feedback"? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Reintentar sin feedback repite el mismo prompt y muy probablemente
+          produce el mismo error. Reintentar con feedback añade al prompt exactamente qué falló
+          en el intento anterior (issues del juez o error del validador), dando al generador
+          información nueva para corregir, no solo una segunda tirada de dados.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué <code>max_attempts=2</code> y no, por ejemplo, 5?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Cada intento añade latencia y costo de API. Si dos intentos con
+          feedback específico no bastan, el problema suele ser estructural (esquema insuficiente,
+          pregunta ambigua) y no algo que un tercer o cuarto intento vaya a resolver. Es más
+          barato y más honesto fallar rápido.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué endurecer la condición de <code>validated=True</code> es
+          parte de este bucle y no un tema aparte? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque el bucle es lo que produce un veredicto del juez además del
+          resultado de ejecución. Antes, "validated" solo dependía de que la ejecución no lanzara
+          error; ahora puede exigir también que el juez haya aprobado, cerrando la vía por la que
+          hoy se contamina la memoria V2 con SQL semánticamente incorrecto.</div>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a href="clase-3-llm-as-a-judge.html">
+        <span class="dir">← Anterior</span>
+        <span class="title">Clase 3: LLM como juez</span>
+      </a>
+      <a class="next" href="clase-5-guardrail-resultados.html">
+        <span class="dir">Siguiente →</span>
+        <span class="title">Clase 5: Guardrail de resultados</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>

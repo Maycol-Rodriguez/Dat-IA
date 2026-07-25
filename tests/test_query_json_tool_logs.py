@@ -48,8 +48,10 @@ def test_query_json_returns_tool_logs(monkeypatch) -> None:
 
     monkeypatch.setattr(main_module, "retrieve_ddl_context", fake_retrieve_ddl_context)
 
-    def fake_build_rag_response(question, ddl, memory_examples=None, tool_logs=None):
-        _ = (question, ddl, memory_examples)
+    def fake_build_rag_response(
+        question, ddl, optimized_query=None, memory_examples=None, tool_logs=None
+    ):
+        _ = (question, ddl, optimized_query, memory_examples)
         return main_module.RAGResponse(
             sql="SELECT 1 AS result;",
             sources="ventas",

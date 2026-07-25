@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 5 · Guardrail de resultados — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 5 de 7</span>
+    <h1>Guardrail de resultados y groundedness</h1>
+    <p class="lede">
+      El SQL ya pasó el validador determinístico y el juez (Clases 2–3). Se ejecutó sin error.
+      Queda un último punto ciego: el LLM que redacta la respuesta en español a partir de las
+      filas puede inventar o redondear números que no están ahí.
+    </p>
+
+    <h2>1. El problema</h2>
+    <p>
+      El pregunta original del usuario decidió que este evaluador fuera un
+      <strong>guardrail ligero</strong>, no un segundo juez semántico completo — esa cobertura
+      ya la da el juez de la Clase 3 antes de ejecutar. Lo que queda sin cubrir es otra cosa:
+      <code>synthesize_answer</code> (<code>app/main.py:987-1005</code>) recibe las filas reales
+      y redacta texto libre en español. Un LLM redactando texto libre puede, por ejemplo, decir
+      "el ingreso promedio fue de S/ 452" cuando las filas devueltas dicen 438.
+    </p>
+
+    <div class="callout info">
+      <div class="icon">💡</div>
+      <div class="body"><p>
+        Por qué <strong>no</strong> un segundo juez semántico completo: duplicaría casi todo el
+        trabajo de la Clase 3 (que ya verificó operación, métricas, filtros) y añadiría otra
+        llamada a LLM completa antes de responder. El guardrail de esta clase es deliberadamente
+        más barato: chequeos determinísticos sobre las filas, más una verificación de
+        groundedness acotada al texto final.
+      </p></div>
+    </div>
+
+    <h2>2. El concepto desde cero</h2>
+
+    <h3>Chequeos determinísticos sobre el resultado (sin LLM)</h3>
+    <p>
+      Antes de tocar el texto redactado, hay señales de alerta que se detectan mirando solo las
+      filas — gratis, sin llamar a ningún modelo:
+    </p>
+    <ul>
+      <li><strong>Resultado vacío</strong> (<code>len(rows) == 0</code>): la pregunta era válida
+        pero el filtro no encontró nada; merece un mensaje distinto a un error.</li>
+      <li><strong>Todas las columnas de métrica en NULL</strong>: el JOIN pudo ser correcto pero
+        la columna que se quería agregar vino vacía en todas las filas.</li>
+      <li><strong>Resultado truncado silenciosamente</strong>: <code>execute_sql</code>
+        (<code>app/main.py:937-960</code>) corta a <code>row_limit=200</code> sin avisar. Si
+        <code>len(rows) == row_limit</code>, es señal de que probablemente hay más filas de las
+        mostradas — hoy eso no se comunica al usuario.</li>
+      <li><strong>Cardinalidad inesperada según la operación</strong>: si
+        <code>optimized_query.operation</code> es <code>"rank_desc"</code> con
+        <code>LIMIT 1</code> implícito en la pregunta pero el SQL devuelve 40 filas, algo no
+        cuadra con la intención.</li>
+    </ul>
+
+    <div class="code-block">
+      <div class="label">app/validation/result_guardrail.py — chequeo de resultado</div>
+      <pre><code><span class="tok-kw">from</span> dataclasses <span class="tok-kw">import</span> dataclass
+
+<span class="tok-kw">@dataclass</span>(frozen=<span class="tok-kw">True</span>)
+<span class="tok-kw">class</span> <span class="tok-fn">ResultCheck</span>:
+    ok: <span class="tok-fn">bool</span>
+    warnings: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>]
+
+<span class="tok-kw">def</span> <span class="tok-fn">check_result</span>(
+    rows: <span class="tok-fn">list</span>[<span class="tok-fn">dict</span>],
+    optimized_query: OptimizedQuery,
+    row_limit: <span class="tok-fn">int</span> = 200,
+) -&gt; ResultCheck:
+    warnings = []
+
+    <span class="tok-kw">if</span> <span class="tok-kw">not</span> rows:
+        warnings.append(<span class="tok-str">"La consulta no devolvió filas."</span>)
+
+    <span class="tok-kw">if</span> <span class="tok-fn">len</span>(rows) == row_limit:
+        warnings.append(
+            <span class="tok-kw">f</span><span class="tok-str">"El resultado se truncó a {row_limit} filas; puede haber más datos."</span>
+        )
+
+    <span class="tok-kw">for</span> metric <span class="tok-kw">in</span> optimized_query.metrics:
+        <span class="tok-kw">if</span> rows <span class="tok-kw">and</span> <span class="tok-fn">all</span>(row.get(metric) <span class="tok-kw">is</span> <span class="tok-kw">None</span> <span class="tok-kw">for</span> row <span class="tok-kw">in</span> rows):
+            warnings.append(<span class="tok-kw">f</span><span class="tok-str">"La métrica '{metric}' vino vacía en todas las filas."</span>)
+
+    <span class="tok-kw">return</span> ResultCheck(ok=<span class="tok-kw">not</span> warnings, warnings=warnings)</code></pre>
+    </div>
+
+    <h3>Groundedness: que cada número en la respuesta exista en las filas</h3>
+    <p>
+      "Groundedness" significa que una afirmación está respaldada por la evidencia disponible —
+      aquí, que cada cifra que aparece en el texto redactado por
+      <code>synthesize_answer</code> aparezca (con tolerancia de redondeo) entre los valores de
+      <code>rows</code>. Es un chequeo barato: extraer números del texto con una expresión
+      regular y comparar contra los valores numéricos de las filas, sin necesidad de otro LLM
+      para la primera pasada.
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/validation/result_guardrail.py — groundedness</div>
+      <pre><code><span class="tok-kw">import</span> re
+
+<span class="tok-kw">@dataclass</span>(frozen=<span class="tok-kw">True</span>)
+<span class="tok-kw">class</span> <span class="tok-fn">GroundednessCheck</span>:
+    ok: <span class="tok-fn">bool</span>
+    unsupported_numbers: <span class="tok-fn">list</span>[<span class="tok-fn">str</span>]
+
+<span class="tok-kw">def</span> <span class="tok-fn">check_groundedness</span>(
+    answer: <span class="tok-fn">str</span>,
+    rows: <span class="tok-fn">list</span>[<span class="tok-fn">dict</span>],
+    tolerance: <span class="tok-fn">float</span> = 0.01,
+) -&gt; GroundednessCheck:
+    numbers_in_answer = re.findall(<span class="tok-str">r"\d+[.,]?\d*"</span>, answer)
+    row_values = {
+        <span class="tok-fn">round</span>(<span class="tok-fn">float</span>(value), 2)
+        <span class="tok-kw">for</span> row <span class="tok-kw">in</span> rows <span class="tok-kw">for</span> value <span class="tok-kw">in</span> row.values()
+        <span class="tok-kw">if</span> <span class="tok-fn">isinstance</span>(value, (<span class="tok-fn">int</span>, <span class="tok-fn">float</span>))
+    }
+
+    unsupported = []
+    <span class="tok-kw">for</span> raw <span class="tok-kw">in</span> numbers_in_answer:
+        candidate = <span class="tok-fn">float</span>(raw.replace(<span class="tok-str">","</span>, <span class="tok-str">""</span>))
+        <span class="tok-kw">if</span> <span class="tok-kw">not</span> <span class="tok-fn">any</span>(<span class="tok-fn">abs</span>(candidate - v) &lt;= tolerance * <span class="tok-fn">max</span>(<span class="tok-fn">abs</span>(v), 1) <span class="tok-kw">for</span> v <span class="tok-kw">in</span> row_values):
+            unsupported.append(raw)
+
+    <span class="tok-kw">return</span> GroundednessCheck(ok=<span class="tok-kw">not</span> unsupported, unsupported_numbers=unsupported)</code></pre>
+    </div>
+
+    <div class="callout warning">
+      <div class="icon">⚠️</div>
+      <div class="body"><p>
+        Este chequeo tiene falsos positivos esperables: números de fila (<code>#1</code>),
+        conteos derivados (<code>len(rows)</code>, que <code>synthesize_answer</code> ya
+        menciona explícitamente según su prompt, <code>app/main.py:995</code>) o porcentajes
+        calculados a partir de dos valores de la fila. La mitigación no es afinar la regex
+        infinitamente, sino usarlo como <strong>señal de sospecha</strong>, no como bloqueo
+        automático: si hay números sin respaldo, se regenera la redacción una vez con una
+        instrucción más estricta; si persiste, se entrega igual pero con
+        <code>warnings</code> visibles.
+      </p></div>
+    </div>
+
+    <h2>3. Cómo se integra en Dat-IA</h2>
+    <p>
+      Ambos chequeos se insertan en <code>/query/answer</code>
+      (<code>app/main.py:1264-1387</code>) entre <code>execute_sql</code> y el guardado en
+      memoria V2:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — /query/answer con guardrail (fragmento nuevo)</div>
+      <pre><code>execution = execute_sql(sql_database, rag_response.sql)
+<span class="tok-kw">if</span> <span class="tok-str">"error"</span> <span class="tok-kw">in</span> execution:
+    ...  <span class="tok-com"># sin cambios</span>
+
+rows = execution[<span class="tok-str">"rows"</span>]
+result_check = check_result(rows, optimized_query)
+
+answer_text = synthesize_answer(answer_llm, request.question, rag_response.sql, rows)
+groundedness = check_groundedness(answer_text, rows)
+
+<span class="tok-kw">if</span> <span class="tok-kw">not</span> groundedness.ok:
+    <span class="tok-com"># una sola regeneración con instrucción estricta, no un bucle nuevo</span>
+    answer_text = synthesize_answer(
+        answer_llm, request.question, rag_response.sql, rows,
+        strict_numbers=<span class="tok-kw">True</span>,
+    )
+    groundedness = check_groundedness(answer_text, rows)
+
+is_fully_validated = (
+    verdict.is_valid <span class="tok-kw">and</span> verdict.answers_question
+    <span class="tok-kw">and</span> result_check.ok <span class="tok-kw">and</span> groundedness.ok
+)
+<span class="tok-com"># is_fully_validated reemplaza el validated=True incondicional de app/main.py:1370-1377</span></code></pre>
+    </div>
+
+    <h2>4. Errores comunes</h2>
+    <ul>
+      <li><strong>Convertir esto en un segundo juez semántico.</strong> Si empieza a preguntarse
+        "¿esta respuesta tiene sentido de negocio?", ya se está duplicando la Clase 3. El
+        guardrail se queda en resultado + groundedness, nada más.</li>
+      <li><strong>Bloquear en vez de regenerar una vez.</strong> Un solo reintento de redacción
+        con instrucción estricta resuelve la mayoría de los casos sin añadir demasiada latencia;
+        más de un reintento aquí ya no es proporcional al problema.</li>
+      <li><strong>Ignorar la truncación silenciosa.</strong> <code>row_limit=200</code> ya existe
+        en <code>execute_sql</code> pero hoy nadie lo comunica al usuario — es un warning gratis
+        de añadir.</li>
+    </ul>
+
+    <h2>5. Checklist de implementación</h2>
+    <ul class="checklist">
+      <li><span class="box"></span> Crear <code>app/validation/result_guardrail.py</code> con
+        <code>ResultCheck</code>, <code>check_result</code>, <code>GroundednessCheck</code>,
+        <code>check_groundedness</code>.</li>
+      <li><span class="box"></span> Añadir parámetro <code>strict_numbers: bool = False</code> a
+        <code>synthesize_answer</code> (<code>app/main.py:987</code>) que endurece la instrucción
+        del prompt cuando es <code>True</code>.</li>
+      <li><span class="box"></span> Insertar ambos chequeos en <code>/query/answer</code> entre
+        ejecución y guardado de memoria; propagar <code>warnings</code> en
+        <code>AnswerResponse</code> (ya ampliado en la Clase 4).</li>
+      <li><span class="box"></span> Tests: filas vacías, métrica en NULL, resultado truncado a
+        <code>row_limit</code>, respuesta con número inventado que dispara el reintento de
+        redacción.</li>
+    </ul>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué el usuario decidió que este evaluador fuera un guardrail
+          ligero y no un segundo juez semántico completo? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque un segundo juez semántico duplicaría gran parte del trabajo
+          que ya hace el juez de la Clase 3 antes de ejecutar, añadiendo latencia y costo sin
+          cubrir un fallo nuevo. El fallo real que queda descubierto tras la ejecución es otro:
+          la redacción en lenguaje natural puede inventar cifras — eso es lo que ataca el
+          guardrail.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué el chequeo de groundedness usa una regex en vez de un
+          LLM? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque comparar números extraídos del texto contra los valores de las
+          filas es una operación determinística y barata — no requiere juicio ni comprensión de
+          lenguaje, solo coincidencia numérica con tolerancia de redondeo. Reservar un LLM para
+          esto sería gastar una llamada cara en un chequeo mecánico.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Qué pasa hoy quiéndose <code>execute_sql</code> trunca el
+          resultado a 200 filas, y qué cambia con el guardrail?
+          <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Hoy la truncación es silenciosa: el usuario recibe 200 filas sin
+          saber que podría haber más. Con <code>check_result</code>, si
+          <code>len(rows) == row_limit</code> se añade un warning explícito en la respuesta,
+          avisando que el resultado puede estar incompleto.</div>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a href="clase-4-bucle-autocorreccion.html">
+        <span class="dir">← Anterior</span>
+        <span class="title">Clase 4: Bucle de autocorrección</span>
+      </a>
+      <a class="next" href="clase-6-langgraph-conversacional.html">
+        <span class="dir">Siguiente →</span>
+        <span class="title">Clase 6: Agente con LangGraph</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clase 1 · Por qué falla sin validación — Dat-IA</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Clase 1 de 7</span>
+    <h1>Por qué falla un Text-to-SQL sin validación</h1>
+    <p class="lede">
+      "El SQL ejecutó sin error" es la barra más baja posible para confiar en una respuesta.
+      Esta clase separa los 4 niveles de error que puede tener un SQL generado por un LLM, y por
+      qué el pipeline actual de Dat-IA solo detecta el más barato de los cuatro.
+    </p>
+
+    <h2>1. El problema</h2>
+    <p>
+      Un usuario de negocio pregunta: <em>"¿Cuál fue el ingreso promedio por pedido en Sao
+      Paulo en 2018?"</em>. El optimizer de Dat-IA (<code>app/optimizer/query_optimizer.py</code>)
+      detecta correctamente <code>intent="aggregation"</code>, <code>metrics=["revenue"]</code>,
+      un filtro <code>state=SP</code> y <code>date_range 2018-01-01..2018-12-31</code>.
+    </p>
+    <p>
+      El generador (<code>build_rag_response</code>, <code>app/main.py:889</code>) recibe el DDL
+      de <code>olist_orders_dataset</code> y <code>olist_order_items_dataset</code> y produce
+      este SQL:
+    </p>
+
+    <div class="code-block">
+      <div class="label">SQL generado (ejecuta sin error)</div>
+      <pre><code><span class="tok-kw">SELECT</span> <span class="tok-fn">SUM</span>(oi.price) <span class="tok-kw">AS</span> total_revenue
+<span class="tok-kw">FROM</span> olist_orders_dataset o
+<span class="tok-kw">JOIN</span> olist_order_items_dataset oi <span class="tok-kw">ON</span> o.order_id = oi.order_id
+<span class="tok-kw">JOIN</span> olist_customers_dataset c <span class="tok-kw">ON</span> o.customer_id = c.customer_id
+<span class="tok-kw">WHERE</span> c.customer_state = <span class="tok-str">'SP'</span>
+  <span class="tok-kw">AND</span> o.order_purchase_timestamp <span class="tok-kw">BETWEEN</span> <span class="tok-str">'2018-01-01'</span> <span class="tok-kw">AND</span> <span class="tok-str">'2018-12-31'</span>;</code></pre>
+    </div>
+
+    <p>
+      Corre. Devuelve un número. <code>execute_sql</code> (<code>app/main.py:937</code>) no
+      lanza error. Hoy eso basta para que <code>/query/answer</code> marque
+      <code>execution_status="success"</code>, <code>validated=True</code>
+      (<code>app/main.py:1370-1377</code>) y lo guarde en memoria como ejemplo autoritativo.
+    </p>
+
+    <div class="callout danger">
+      <div class="icon">🐛</div>
+      <div class="body"><p>
+        Pero la pregunta pidió el <strong>promedio</strong> (<code>AVG</code>) y el SQL calcula
+        la <strong>suma</strong> (<code>SUM</code>). Además el JOIN con
+        <code>olist_order_items_dataset</code> multiplica cada pedido por su número de ítems: si
+        un pedido tiene 3 productos, su <code>price</code> se cuenta 3 veces en total, no una.
+        El número es real, ejecuta perfecto, y está mal en dos formas distintas.
+      </p></div>
+    </div>
+
+    <h2>2. El concepto desde cero: los 4 niveles de error</h2>
+    <p>
+      Cuando un LLM traduce lenguaje natural a SQL, el error puede vivir en capas muy distintas.
+      Ordenarlas de barata a cara de detectar es la base de todo lo que viene en las clases
+      siguientes.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Nivel</th><th>Qué falla</th><th>Ejemplo</th><th>Cómo se detecta</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. Sintáctico</strong></td>
+          <td>El SQL no es SQL válido</td>
+          <td><code>SELECT FROM WHERE</code> mal formado, paréntesis sin cerrar</td>
+          <td>Parsear el texto (gratis, sin BD)</td>
+        </tr>
+        <tr>
+          <td><strong>2. De esquema</strong></td>
+          <td>Sintaxis válida, pero cita tablas/columnas que no existen</td>
+          <td><code>customer_state</code> en vez de <code>state</code></td>
+          <td>Comparar contra el DDL o un dry-run</td>
+        </tr>
+        <tr>
+          <td><strong>3. Semántico</strong></td>
+          <td>Ejecuta, pero el resultado numérico está distorsionado por la estructura de la
+            query</td>
+          <td>El JOIN duplica filas; <code>SUM</code> en vez de <code>AVG</code></td>
+          <td>Requiere entender la intención, no solo el esquema</td>
+        </tr>
+        <tr>
+          <td><strong>4. De negocio</strong></td>
+          <td>Ejecuta y el número es correcto, pero contesta otra pregunta</td>
+          <td>Pidieron 2018, el filtro de fecha quedó en 2017</td>
+          <td>Requiere comparar contra la intención estructurada del usuario</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      El nivel 1 y buena parte del 2 se resuelven <strong>sin ningún LLM</strong> — son
+      determinísticos y casi gratis (Clase 2). Los niveles 3 y 4 necesitan juicio, y ahí es donde
+      entra un segundo LLM actuando como juez (Clase 3).
+    </p>
+
+    <h3>Principio de capas: barato antes que caro</h3>
+    <p>
+      La regla de oro de cualquier sistema de validación con LLMs: <strong>filtra con lo
+      determinístico primero</strong>. Un parser de SQL cuesta microsegundos y cero tokens. Un
+      juez LLM cuesta una llamada a la API completa. No tiene sentido gastar esa llamada en un
+      SQL que ni siquiera parsea.
+    </p>
+
+    <div class="card">
+      <h3>Costo relativo por capa (orden de magnitud)</h3>
+      <table>
+        <tr><td>Parsear sintaxis (sqlglot)</td><td>~1 ms, $0</td></tr>
+        <tr><td>Verificar tablas contra DDL recuperado</td><td>~1 ms, $0</td></tr>
+        <tr><td>Dry-run <code>EXPLAIN</code> en Postgres</td><td>~10–50 ms, $0</td></tr>
+        <tr><td>Juez LLM (Gemini, salida estructurada)</td><td>~500–1500 ms, costo de 1 llamada</td></tr>
+        <tr><td>Ejecutar SQL real + redactar respuesta</td><td>~1–3 s, costo de 1–2 llamadas</td></tr>
+      </table>
+    </div>
+
+    <h2>3. Cómo se ve en Dat-IA hoy</h2>
+    <p>
+      El flujo actual de <code>/query/answer</code> (<code>app/main.py:1264-1387</code>) no tiene
+      ningún nodo entre generación y ejecución:
+    </p>
+
+    <div class="code-block">
+      <div class="label">app/main.py — flujo actual (simplificado)</div>
+      <pre><code>rag_response = build_rag_response(query_for_generation, resp.ddl, memory_examples=memory_examples)
+<span class="tok-com"># nada entre estas dos líneas hoy</span>
+execution = execute_sql(sql_database, rag_response.sql)
+<span class="tok-com"># si no hay "error" en execution, se asume éxito y se marca validated=True</span></code></pre>
+    </div>
+
+    <p>
+      La causa raíz es estructural: <code>build_rag_response</code> devuelve un
+      <code>RAGResponse</code> con <code>status</code> y <code>confidence_note</code>, pero esos
+      campos los rellena el mismo LLM que generó el SQL — no hay una segunda opinión
+      independiente. Un LLM casi nunca reporta baja confianza en su propio error.
+    </p>
+
+    <h2>4. Errores comunes al razonar sobre esto</h2>
+    <ul>
+      <li><strong>Confundir "ejecuta" con "es correcto".</strong> Postgres no sabe qué pregunta de
+        negocio intentabas responder; solo sabe si la sintaxis y los tipos son válidos.</li>
+      <li><strong>Pensar que más ejemplos en el prompt resuelven el nivel 3–4.</strong> Ayudan,
+        pero no eliminan la necesidad de verificar la salida — mitigan la tasa de error, no la
+        anulan.</li>
+      <li><strong>Validar todo con un solo LLM.</strong> Si el mismo modelo que generó el SQL
+        también lo valida, hereda el mismo punto ciego (ver sesgo de <em>self-preference</em>,
+        Clase 3).</li>
+    </ul>
+
+    <h2>5. Checklist de lo que viene</h2>
+    <ul class="checklist">
+      <li><span class="box"></span> Nivel 1–2 (sintaxis + esquema): Clase 2, con sqlglot y EXPLAIN.</li>
+      <li><span class="box"></span> Nivel 3–4 (semántico + negocio): Clase 3, con un juez LLM que
+        verifica contra la estructura del <code>OptimizedQuery</code>.</li>
+      <li><span class="box"></span> Qué pasa cuando algo falla: Clase 4, bucle de reintento con
+        límite.</li>
+      <li><span class="box"></span> Qué pasa después de ejecutar: Clase 5, guardrail sobre el
+        resultado y la respuesta redactada.</li>
+    </ul>
+
+    <h2>Comprueba que entendiste</h2>
+    <div class="quiz">
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué "el SQL no lanzó excepción" no es prueba suficiente de
+          corrección? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque un motor SQL solo valida sintaxis, tipos y existencia de
+          columnas/tablas — no sabe cuál era la intención de negocio original. Un JOIN que
+          duplica filas o una métrica equivocada ejecutan perfectamente y devuelven un número,
+          solo que el número está mal.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">¿Por qué conviene filtrar con sqlglot/EXPLAIN antes de llamar a un
+          juez LLM? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Porque son capas casi gratis (milisegundos, sin costo de API) que
+          capturan los errores más comunes y baratos de detectar. Gastar una llamada a un LLM
+          juez en un SQL que ni siquiera parsea es desperdiciar latencia y costo en un caso que
+          un parser resuelve solo.</div>
+      </div>
+      <div class="quiz-item">
+        <button class="quiz-q">En el ejemplo de Sao Paulo 2018, ¿en qué nivel de error cae el uso
+          de <code>SUM</code> en vez de <code>AVG</code>? <span class="chevron">⌄</span></button>
+        <div class="quiz-a">Nivel 3, semántico: el SQL es sintácticamente válido y usa tablas y
+          columnas reales, pero la operación de agregación no corresponde a lo que pidió el
+          usuario. No lo detecta un parser ni un EXPLAIN — hace falta comparar contra la
+          intención estructurada (<code>operation="average"</code> en el optimizer).</div>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a href="index.html">
+        <span class="dir">← Volver</span>
+        <span class="title">Inicio del curso</span>
+      </a>
+      <a class="next" href="clase-2-validacion-deterministica.html">
+        <span class="dir">Siguiente →</span>
+        <span class="title">Clase 2: Validación determinística</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>

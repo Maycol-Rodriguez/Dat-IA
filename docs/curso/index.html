@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dat-IA · Curso de arquitectura</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="index.html">
+      <span class="dot"></span> Dat-IA · Curso
+    </a>
+
+    <button id="theme-toggle" class="theme-toggle">🌙 Modo oscuro</button>
+
+    <div class="sidebar-section-label">Curso</div>
+    <nav>
+      <a href="index.html"><span class="n">·</span>Inicio</a>
+      <a href="clase-1-por-que-falla.html"><span class="n">1</span>Por qué falla sin validación</a>
+      <a href="clase-2-validacion-deterministica.html"><span class="n">2</span>Validación determinística</a>
+      <a href="clase-3-llm-as-a-judge.html"><span class="n">3</span>LLM como juez</a>
+      <a href="clase-4-bucle-autocorreccion.html"><span class="n">4</span>Bucle de autocorrección</a>
+      <a href="clase-5-guardrail-resultados.html"><span class="n">5</span>Guardrail de resultados</a>
+      <a href="clase-6-langgraph-conversacional.html"><span class="n">6</span>Agente con LangGraph</a>
+      <a href="clase-7-que-mas-anadir.html"><span class="n">7</span>Qué más añadir</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <span class="eyebrow">Curso interno · Arquitectura Dat-IA</span>
+    <h1>De pipeline Text-to-SQL a agente conversacional validado</h1>
+    <p class="lede">
+      Esta es la guía para la próxima actualización de arquitectura de Dat-IA: añadir un
+      validador de SQL, un evaluador ligero de resultados y convertir el pipeline actual en un
+      agente conversacional. Siete clases cortas, desde cero, con el código real del proyecto.
+    </p>
+
+    <h2>El problema, con código real</h2>
+    <p>
+      Hoy <code>/query/answer</code> genera SQL con Gemini y lo ejecuta directo. No hay ningún
+      punto de control entre "el LLM escribió algo" y "eso se corre contra Supabase".
+    </p>
+
+    <div class="callout danger">
+      <div class="icon">⚠️</div>
+      <div class="body">
+        <p><strong>3 huecos verificados en <code>app/main.py</code>:</strong></p>
+        <ul>
+          <li><strong>Sin validación previa a la ejecución.</strong> El SQL de
+            <code>build_rag_response</code> va directo a <code>execute_sql</code>. Si el SQL
+            ejecuta pero responde otra pregunta (métrica equivocada, JOIN que duplica filas),
+            pasa como éxito.</li>
+          <li><strong>Memoria contaminada.</strong> <code>/query/answer</code> marca
+            <code>validated=True</code> con solo haber ejecutado sin error. Ese SQL se reinyecta
+            luego como ejemplo autoritativo para generar nuevo SQL.</li>
+          <li><strong>Sin conversación.</strong> Cada request es independiente: no hay
+            <code>thread_id</code> ni historial. "¿Y en 2018?" es imposible de responder.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Arquitectura objetivo</h2>
+    <p>
+      Fase 1 (manual, sin frameworks nuevos): un validador determinístico, un juez LLM y un
+      bucle de reintento con límite. Fase 2 (LangGraph): el mismo pipeline envuelto en un grafo
+      con estado, para que la interacción sea conversacional.
+    </p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 920 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama de arquitectura objetivo">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="var(--text-light)"></path>
+          </marker>
+        </defs>
+        <style>
+          .box { fill: var(--surface-subtle); stroke: var(--border); stroke-width: 1.5; rx: 10; }
+          .box-accent { fill: var(--accent-soft-bg); stroke: var(--accent); stroke-width: 1.5; rx: 10; }
+          .box-new { fill: var(--warning-bg); stroke: var(--warning-border); stroke-width: 1.5; rx: 10; }
+          .lbl { font-family: var(--font-sans); font-size: 13px; fill: var(--text-dark); }
+          .lbl-sub { font-family: var(--font-sans); font-size: 11px; fill: var(--text-medium); }
+          .edge { stroke: var(--text-light); stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+          .edge-cond { stroke: var(--accent-link); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; marker-end: url(#arrow); }
+          .grp-label { font-family: var(--font-sans); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; fill: var(--text-light); }
+        </style>
+
+        <text x="20" y="24" class="grp-label">Fase 1 · orquestación manual</text>
+
+        <rect x="20" y="40" width="140" height="44" class="box"></rect>
+        <text x="90" y="66" text-anchor="middle" class="lbl">Pregunta</text>
+
+        <rect x="200" y="40" width="140" height="44" class="box"></rect>
+        <text x="270" y="60" text-anchor="middle" class="lbl">Shield + Optimizer</text>
+        <text x="270" y="74" text-anchor="middle" class="lbl-sub">ya existe</text>
+
+        <rect x="380" y="40" width="160" height="44" class="box"></rect>
+        <text x="460" y="60" text-anchor="middle" class="lbl">Generar SQL</text>
+        <text x="460" y="74" text-anchor="middle" class="lbl-sub">build_rag_response</text>
+
+        <rect x="380" y="130" width="160" height="52" class="box-new"></rect>
+        <text x="460" y="152" text-anchor="middle" class="lbl">Validar SQL</text>
+        <text x="460" y="168" text-anchor="middle" class="lbl-sub">sqlglot + EXPLAIN + juez LLM</text>
+
+        <rect x="600" y="130" width="150" height="44" class="box-accent"></rect>
+        <text x="675" y="156" text-anchor="middle" class="lbl">Ejecutar SQL</text>
+
+        <rect x="600" y="210" width="150" height="52" class="box-new"></rect>
+        <text x="675" y="230" text-anchor="middle" class="lbl">Guardrail</text>
+        <text x="675" y="246" text-anchor="middle" class="lbl-sub">resultado + groundedness</text>
+
+        <rect x="380" y="290" width="160" height="44" class="box"></rect>
+        <text x="460" y="316" text-anchor="middle" class="lbl">Redactar respuesta</text>
+
+        <rect x="600" y="290" width="150" height="44" class="box"></rect>
+        <text x="675" y="316" text-anchor="middle" class="lbl">Memoria V2</text>
+
+        <path d="M160,62 L200,62" class="edge"></path>
+        <path d="M340,62 L380,62" class="edge"></path>
+        <path d="M460,84 L460,130" class="edge"></path>
+        <path d="M540,156 L600,152" class="edge"></path>
+        <path d="M675,174 L675,210" class="edge"></path>
+        <path d="M675,262 L675,290 L750,312" class="edge"></path>
+        <path d="M600,312 L540,312" class="edge"></path>
+
+        <path d="M460,182 C 300,220 300,60 380,58" class="edge-cond"></path>
+        <text x="230" y="200" class="lbl-sub" fill="var(--accent-link)">rechazado (máx. 2 intentos)</text>
+
+        <path d="M675,262 C 800,262 800,150 750,148" class="edge-cond"></path>
+        <text x="760" y="200" class="lbl-sub" fill="var(--accent-link)">falla → regenerar</text>
+
+        <line x1="0" y1="360" x2="920" y2="360" stroke="var(--border)" stroke-dasharray="3 4"></line>
+
+        <text x="20" y="390" class="grp-label">Fase 2 · agente con LangGraph (estado + conversación)</text>
+
+        <rect x="20" y="410" width="150" height="52" class="box-accent"></rect>
+        <text x="95" y="430" text-anchor="middle" class="lbl">resolve_question</text>
+        <text x="95" y="446" text-anchor="middle" class="lbl-sub">reescribe con historial</text>
+
+        <rect x="200" y="410" width="120" height="44" class="box-accent"></rect>
+        <text x="260" y="436" text-anchor="middle" class="lbl">route</text>
+
+        <rect x="200" y="490" width="160" height="52" class="box-new"></rect>
+        <text x="280" y="510" text-anchor="middle" class="lbl">clarify</text>
+        <text x="280" y="526" text-anchor="middle" class="lbl-sub">pregunta al usuario</text>
+
+        <rect x="400" y="410" width="200" height="60" class="box"></rect>
+        <text x="500" y="434" text-anchor="middle" class="lbl">Pipeline Fase 1</text>
+        <text x="500" y="450" text-anchor="middle" class="lbl-sub">como nodos del grafo</text>
+        <text x="500" y="464" text-anchor="middle" class="lbl-sub">(mismo código, envuelto)</text>
+
+        <rect x="660" y="410" width="220" height="52" class="box-accent"></rect>
+        <text x="770" y="430" text-anchor="middle" class="lbl">Checkpointer (thread_id)</text>
+        <text x="770" y="446" text-anchor="middle" class="lbl-sub">MemorySaver / PostgresSaver</text>
+
+        <path d="M170,436 L200,434" class="edge"></path>
+        <path d="M260,454 L260,490" class="edge-cond"></path>
+        <path d="M320,434 L400,434" class="edge"></path>
+        <path d="M600,440 L660,436" class="edge"></path>
+        <path d="M770,462 L770,480 L95,480 L95,462" class="edge-cond"></path>
+      </svg>
+    </div>
+
+    <div class="callout info">
+      <div class="icon">💡</div>
+      <div class="body">
+        <p>Las cajas naranjas son nodos nuevos (validador, juez, guardrail, clarificación). Las
+        cajas azules son estado/orquestación nueva. Las cajas grises son código que <strong>ya
+        existe</strong> y solo se reutiliza.</p>
+      </div>
+    </div>
+
+    <h2>Cómo usar este curso</h2>
+    <p>
+      Cada clase tiene la misma estructura: el problema con un caso de Olist, el concepto
+      explicado desde cero, cómo se ve en el código de Dat-IA (con ruta de archivo), errores
+      comunes, un checklist de implementación y unas preguntas para comprobar que quedó claro.
+    </p>
+
+    <div class="grid-cards">
+      <div class="card">
+        <span class="num">Clase 1</span>
+        <a href="clase-1-por-que-falla.html"><h3>Por qué falla sin validación</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Los 4 niveles de
+        error de un Text-to-SQL, de barato a caro de detectar.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 2</span>
+        <a href="clase-2-validacion-deterministica.html"><h3>Validación determinística</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">sqlglot para parsear
+        SQL sin ejecutarlo, y EXPLAIN como dry-run contra Postgres.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 3</span>
+        <a href="clase-3-llm-as-a-judge.html"><h3>LLM como juez</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Rúbrica explícita
+        contra la estructura del optimizer, salida estructurada, sesgos del juez.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 4</span>
+        <a href="clase-4-bucle-autocorreccion.html"><h3>Bucle de autocorrección</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Generador → crítico →
+        regenerar, con límite de intentos y feedback en el prompt.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 5</span>
+        <a href="clase-5-guardrail-resultados.html"><h3>Guardrail de resultados</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Chequeos
+        determinísticos post-ejecución y groundedness de la respuesta redactada.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 6</span>
+        <a href="clase-6-langgraph-conversacional.html"><h3>Agente con LangGraph</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Estado, nodos,
+        aristas condicionales, checkpointer y reescritura de referencias.</p>
+      </div>
+      <div class="card">
+        <span class="num">Clase 7</span>
+        <a href="clase-7-que-mas-anadir.html"><h3>Qué más añadir</h3></a>
+        <p style="margin:0; color:var(--text-medium); font-size:.9375rem;">Roadmap priorizado:
+        feedback de usuario, LangSmith, visualización, streaming.</p>
+      </div>
+    </div>
+
+    <div class="class-nav">
+      <a class="next" href="clase-1-por-que-falla.html">
+        <span class="dir">Empezar →</span>
+        <span class="title">Clase 1: Por qué falla sin validación</span>
+      </a>
+    </div>
+  </main>
+</div>
+<script src="curso.js"></script>
+</body>
+</html>
