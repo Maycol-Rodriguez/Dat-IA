@@ -1288,7 +1288,13 @@ def classify_shield(text_input: str) -> tuple[str, float]:
         llm_provider="google",
     ),
 )
-def synthesize_answer(llm, question: str, sql: str, rows: list[dict]) -> str:
+def synthesize_answer(
+    llm,
+    question: str,
+    sql: str,
+    rows: list[dict],
+    strict_numbers: bool = False,
+) -> str:
     """Sintetiza una respuesta en lenguaje natural a partir del resultado SQL.
 
     Responde siempre en español, sin importar el idioma de la pregunta
