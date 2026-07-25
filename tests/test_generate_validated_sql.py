@@ -77,7 +77,8 @@ def test_generate_validated_sql_returns_on_first_approved_attempt(monkeypatch) -
 
     assert attempts == 1
     assert verdict is not None and verdict.is_valid and verdict.answers_question
-    assert rag_response.sql == "SELECT carrier_name FROM carriers LIMIT 1;"
+    # Sin ";" final: es el SQL reserializado por validate_sql (sqlglot).
+    assert rag_response.sql == "SELECT carrier_name FROM carriers LIMIT 1"
     assert build_fake.captured_feedback == [None]
     assert judge_fake.calls == 1
 
@@ -106,7 +107,10 @@ def test_generate_validated_sql_retries_with_judge_feedback_and_succeeds(monkeyp
 
     assert attempts == 2
     assert verdict.is_valid and verdict.answers_question
-    assert rag_response.sql == "SELECT carrier_name, AVG(delay_days) FROM carriers GROUP BY carrier_name;"
+    # Sin LIMIT en el original -> validate_sql inyecta LIMIT 200 (DEFAULT_ROW_LIMIT).
+    assert rag_response.sql == (
+        "SELECT carrier_name, AVG(delay_days) FROM carriers GROUP BY carrier_name LIMIT 200"
+    )
     assert build_fake.captured_feedback == [None, rejected]
     assert judge_fake.calls == 2
 
@@ -128,7 +132,8 @@ def test_generate_validated_sql_retries_after_validator_rejection(monkeypatch) -
 
     assert attempts == 2
     assert verdict.is_valid and verdict.answers_question
-    assert rag_response.sql == "SELECT carrier_name FROM carriers;"
+    # Sin LIMIT en el original -> validate_sql inyecta LIMIT 200 (DEFAULT_ROW_LIMIT).
+    assert rag_response.sql == "SELECT carrier_name FROM carriers LIMIT 200"
     assert judge_fake.calls == 1  # el intento 1 nunca llega al juez
 
     first_feedback = build_fake.captured_feedback[1]

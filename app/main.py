@@ -1042,6 +1042,11 @@ def generate_validated_sql(
     para reusar el mismo canal de feedback hacia `build_rag_response`,
     sin necesidad de un segundo tipo de dato para "SQL rechazado".
 
+    En cuanto `validate_sql` aprueba un intento, `rag_response.sql` se
+    reemplaza por `validation.sql` (el SQL con el `LIMIT` ya acotado): el
+    juez y el llamador ven y ejecutan la misma sentencia que de verdad se
+    corrió contra sqlglot, no el SQL crudo del generador.
+
     Args:
         judge_llm: cliente LangChain para `judge_sql` (parámetro explícito,
             no global, para que la función sea testeable con un fake).
@@ -1084,6 +1089,11 @@ def generate_validated_sql(
                 confidence=0.0,
             )
             continue
+
+        # Ejecutar el SQL con el LIMIT acotado por validate_sql, no el
+        # generado en crudo: cierra el hueco por el que el tope de filas
+        # de la Clase 2 nunca llegaba a execute_sql.
+        rag_response = rag_response.model_copy(update={"sql": validation.sql})
 
         verdict = judge_sql(optimized_query, rag_response.sql, judge_llm)
         if verdict.is_valid and verdict.answers_question:

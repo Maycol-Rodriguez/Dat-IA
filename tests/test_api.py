@@ -1513,9 +1513,48 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
         "locale": "es_PE",
     }
 
-    assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;"
+    # Sin ";" final: es el SQL reserializado por validate_sql (sqlglot),
+    # con el LIMIT ya acotado, no el string crudo del generador.
+    assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1"
 
 
+def test_query_answer_executes_sql_with_limit_enforced_by_validator(monkeypatch) -> None:
+    """El SQL sin LIMIT del generador no debe llegar tal cual a execute_sql."""
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    def fake_build_rag_response_without_limit(question, ddl, memory_examples=None, feedback=None):
+        _ = question, ddl, memory_examples, feedback
+        return main_module.RAGResponse(
+            sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;",
+            sources="carriers",
+            confidence_note="",
+            status="success",
+        )
+
+    executed_sql = {}
+
+    def fake_execute_sql(db, sql, row_limit=200):
+        executed_sql["sql"] = sql
+        return {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]}
+
+    monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response_without_limit)
+    monkeypatch.setattr(main_module, "execute_sql", fake_execute_sql)
+    monkeypatch.setattr(
+        main_module,
+        "synthesize_answer",
+        lambda llm, question, sql, rows: "El transportista con mejor cumplimiento es DHL.",
+    )
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+
+    assert response.status_code == 200
+    assert "LIMIT 200" in executed_sql["sql"]
+    assert executed_sql["sql"] == response.json()["sql"]
 
 
 def test_query_answer_marks_matching_memory_without_duplicate(
