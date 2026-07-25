@@ -67,6 +67,32 @@ uv run pytest
 uv run ruff check app tests
 ```
 
+### Evaluación end-to-end con LangSmith
+
+El único golden set se guarda como JSONL UTF-8 en
+`tests/evaluation/datasets/dat_ia_golden_v2.jsonl` y contiene las 30 preguntas.
+La evaluación es manual y no se ejecuta al iniciar la API ni durante `pytest`.
+Para validar el archivo y comprobar que la API está lista, sin ejecutar las 30
+preguntas:
+
+```powershell
+uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set --dry-run
+```
+
+Con la API iniciada, PostgreSQL conectado y las variables
+`USE_LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` configuradas, una sola
+orden sincroniza el dataset y ejecuta las 30 preguntas:
+
+```powershell
+uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set
+```
+
+La fuente de verdad permanece en Git y LangSmith conserva sus propias
+versiones del dataset y los resultados históricos de cada experimento. Consulta
+[`tests/evaluation/README.md`](tests/evaluation/README.md) para conocer el
+contrato, las métricas, el comportamiento sin LangSmith y el procedimiento
+completo.
+
 ### Ejecutar con Docker
 
 ```powershell
