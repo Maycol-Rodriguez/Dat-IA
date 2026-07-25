@@ -13,6 +13,7 @@ from app.main import (
     query_embeddings,
     synthesize_answer,
 )
+from app.optimizer.query_optimizer import OptimizedQuery
 
 
 client = TestClient(app)
@@ -594,6 +595,42 @@ def test_build_rag_response_returns_llm_output(monkeypatch) -> None:
     assert "carriers" in fake_llm.last_prompt
 
 
+def test_build_rag_response_includes_optimizer_structure_in_prompt(monkeypatch) -> None:
+    from app import main as main_module
+
+    fake_response = RAGResponse(
+        sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
+        sources="carriers",
+        confidence_note="Usa la métrica on_time_rate.",
+        status="success",
+    )
+    fake_llm = FakeRagLlm(fake_response)
+    monkeypatch.setattr(main_module, "rag_llm", fake_llm)
+
+    optimized_query = OptimizedQuery(
+        original_question="Que transportista tiene mejor cumplimiento?",
+        normalized_question="Listar transportistas ordenados por mayor tasa de cumplimiento.",
+        intent="ranking",
+        operation="rank_desc",
+        metrics=["on_time_rate"],
+        filters=[],
+        date_range=None,
+        group_by=["carrier"],
+        context=["logistica"],
+        suggested_tables=["carriers"],
+        optimizer="gemini",
+    )
+
+    build_rag_response(
+        "Listar transportistas ordenados por mayor tasa de cumplimiento.",
+        "CREATE TABLE carriers (carrier_name text, on_time_rate numeric);",
+        optimized_query=optimized_query,
+    )
+
+    prompt = fake_llm.last_prompt
+    assert "rank_desc" in prompt
+    assert "on_time_rate" in prompt
+    assert "carrier" in prompt
 
 
 def test_build_rag_response_includes_validated_memory_examples(
@@ -1008,9 +1045,11 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         tool_logs=None,
     ):
+        _ = optimized_query
         captured["generation_question"] = question
         captured["ddl"] = ddl
 
@@ -1092,10 +1131,11 @@ def _mock_query_json_memory_pipeline(
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         tool_logs=None,
     ):
-        _ = question, ddl, memory_examples, tool_logs
+        _ = question, ddl, optimized_query, memory_examples, tool_logs
         return main_module.RAGResponse(
             sql=rag_sql,
             sources=rag_sources,
@@ -1417,10 +1457,11 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         feedback=None,
     ):
-        _ = question, ddl, memory_examples, feedback
+        _ = question, ddl, optimized_query, memory_examples, feedback
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
             sources="carriers",
@@ -1524,8 +1565,10 @@ def test_query_answer_executes_sql_with_limit_enforced_by_validator(monkeypatch)
 
     _mock_answer_pipeline(monkeypatch)
 
-    def fake_build_rag_response_without_limit(question, ddl, memory_examples=None, feedback=None):
-        _ = question, ddl, memory_examples, feedback
+    def fake_build_rag_response_without_limit(
+        question, ddl, optimized_query=None, memory_examples=None, feedback=None
+    ):
+        _ = question, ddl, optimized_query, memory_examples, feedback
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;",
             sources="carriers",
@@ -1695,10 +1738,11 @@ def test_query_answer_marks_matching_memory_without_duplicate(
     def fake_build_rag_response(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         feedback=None,
     ):
-        _ = feedback
+        _ = feedback, optimized_query
         captured["generation_question"] = question
         captured["ddl"] = ddl
         captured["memory_examples"] = memory_examples
@@ -1950,10 +1994,11 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
     def fake_build_rag_response_unknown(
         question: str,
         ddl: str,
+        optimized_query=None,
         memory_examples=None,
         feedback=None,
     ):
-        _ = question, ddl, memory_examples, feedback
+        _ = question, ddl, optimized_query, memory_examples, feedback
         return main_module.RAGResponse(
             sql="I do not know",
             sources="",

@@ -38,8 +38,8 @@ class _FakeBuildRagResponseSequence:
         self.responses = responses
         self.captured_feedback: list[SqlVerdict | None] = []
 
-    def __call__(self, question, ddl, memory_examples=None, feedback=None):
-        _ = question, ddl, memory_examples
+    def __call__(self, question, ddl, optimized_query=None, memory_examples=None, feedback=None):
+        _ = question, ddl, optimized_query, memory_examples
         self.captured_feedback.append(feedback)
         return self.responses[len(self.captured_feedback) - 1]
 

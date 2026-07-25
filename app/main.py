@@ -954,6 +954,7 @@ def _format_query_memory_examples(
 def build_rag_response(
     question: str,
     ddl: str,
+    optimized_query: OptimizedQuery | None = None,
     memory_examples: list[dict] | None = None,
     tool_logs: list[dict[str, Any]] | None = None,
     feedback: SqlVerdict | None = None,
@@ -963,6 +964,12 @@ def build_rag_response(
     salida estructurada. Retorna RAGResponse.
 
     Args:
+        optimized_query: estructura de negocio del optimizer (operation,
+            metrics, group_by, date_range, filters). Se pasa como
+            checklist para que el generador apunte a la misma estructura
+            que luego verifica `judge_sql` — sin esto, el generador solo
+            ve texto libre y el juez puede rechazar un SQL que responde
+            bien la pregunta pero no una estructura que nunca vio.
         feedback: veredicto del intento anterior (validador o juez), si este
             es un reintento dentro de `generate_validated_sql`. Se añade al
             prompt como una sección de corrección; se omite en el primer
@@ -971,6 +978,24 @@ def build_rag_response(
     memory_context = _format_query_memory_examples(
         memory_examples,
     )
+
+    structure_section = ""
+    if optimized_query is not None:
+        fields = optimized_query.to_dict()
+        structure_section = f"""
+    ### Business intent (structured, from the query optimizer)
+    Treat this as a checklist for what the SQL must implement. If a field
+    is empty or None, the question did not require it explicitly.
+    - operation: {fields["operation"]}
+    - metrics: {fields["metrics"]}
+    - group_by: {fields["group_by"]}
+    - date_range: {fields["date_range"]}
+    - filters: {fields["filters"]}
+
+    If the SQL computes one of the metrics listed above, alias its output
+    column with that exact metric identifier (e.g. metric "revenue" ->
+    `AS revenue`), so it can be matched programmatically after execution.
+    """
 
     feedback_section = ""
     if feedback is not None:
@@ -985,7 +1010,7 @@ def build_rag_response(
     augmented_prompt = f"""
     ### Task
     Generate a SQL query to answer [QUESTION]{question}[/QUESTION]
-
+    {structure_section}
     ### Instructions
     - If you cannot answer the question with the available database schema,
       return 'I do not know'.
@@ -1081,6 +1106,7 @@ def generate_validated_sql(
         rag_response = build_rag_response(
             question,
             ddl,
+            optimized_query=optimized_query,
             memory_examples=memory_examples,
             feedback=feedback,
         )
@@ -1101,7 +1127,7 @@ def generate_validated_sql(
 
         # Ejecutar el SQL con el LIMIT acotado por validate_sql, no el
         # generado en crudo: cierra el hueco por el que el tope de filas
-        # de la Clase 2 nunca llegaba a execute_sql.
+        # nunca llegaba a execute_sql.
         rag_response = rag_response.model_copy(update={"sql": validation.sql})
 
         verdict = judge_sql(optimized_query, rag_response.sql, judge_llm)
@@ -1510,6 +1536,7 @@ async def query_json(request: QueryRequest):
     rag_response = build_rag_response(
         query_for_generation,
         resp.ddl,
+        optimized_query=optimized_query,
         tool_logs=tool_logs,
     )
 
