@@ -9,6 +9,7 @@ from typing import Literal
 
 import chromadb
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.staticfiles import StaticFiles
 from langchain_chroma import Chroma
 from langchain_community.utilities import SQLDatabase
 from langchain_openai import ChatOpenAI
@@ -232,6 +233,13 @@ app = FastAPI(
     version="0.1.0",
     description="API inicial para el agente analista de datos Dat-IA.",
     lifespan=lifespan
+)
+
+# UI de chat (estática, servida same-origin para no requerir CORS): http://localhost:8000/ui
+app.mount(
+    "/ui",
+    StaticFiles(directory="app/static/ui", html=True),
+    name="ui",
 )
 
 

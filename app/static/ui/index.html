@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dat-IA</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<button id="theme-toggle" class="theme-toggle" aria-label="Cambiar tema">🌙</button>
+
+<div class="page">
+
+  <main id="hero" class="hero">
+    <div class="wordmark">
+      <span class="muted">Dat</span><span class="bright">-IA</span>
+    </div>
+
+    <form id="composer" class="prompt-card">
+      <div class="prompt-row">
+        <span class="caret">▍</span>
+        <textarea
+          id="question-input"
+          rows="1"
+          placeholder='Escribe tu consulta de negocio... "¿Cuál fue el ingreso total por mes en 2018?"'
+          autocomplete="off"
+          autofocus
+        ></textarea>
+        <button id="send-btn" type="submit" aria-label="Ejecutar consulta">➤</button>
+      </div>
+      <div class="prompt-status-row">
+        <span class="mode-pill">Consulta</span>
+        <span class="sep">·</span>
+        <span class="pipeline-label">Dat-IA Pipeline</span>
+        <span class="status-fill"></span>
+        <span id="backend-status" class="backend-status">
+          <span class="status-dot" data-ok=""></span>
+          <span data-status-label>Verificando backend…</span>
+        </span>
+      </div>
+    </form>
+
+    <div class="hints-row">
+      <span><kbd>enter</kbd> enviar</span>
+      <span><kbd>shift+enter</kbd> salto de línea</span>
+    </div>
+  </main>
+
+  <section id="result-panel" class="result-panel" hidden>
+    <div class="result-header">
+      <div class="result-question"></div>
+      <button id="clear-result" class="clear-btn" type="button">✕ limpiar</button>
+    </div>
+
+    <details class="pipeline" open>
+      <summary>
+        <span class="pipeline-summary-text">Ejecutando pipeline…</span>
+        <span class="chevron">⌄</span>
+      </summary>
+      <div class="pipeline-steps"></div>
+    </details>
+
+    <div class="answer-text"></div>
+  </section>
+
+</div>
+
+<template id="tpl-step">
+  <div class="step" data-step="">
+    <div class="step-head">
+      <span class="step-dot"></span>
+      <span class="step-title"></span>
+      <span class="step-state">esperando…</span>
+    </div>
+    <div class="step-body"></div>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
