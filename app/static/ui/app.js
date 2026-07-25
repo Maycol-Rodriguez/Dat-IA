@@ -370,8 +370,8 @@ function statusPillVariant(status) {
 }
 
 // ---------------------------------------------------------------------------
-// Paso de observabilidad — bucle generar/validar/juzgar (Clase 4) y
-// guardrail de resultado/groundedness (Clase 5). No son datos que exponga
+// Paso de observabilidad — bucle generar/validar/juzgar y
+// guardrail de resultado/groundedness. No son datos que exponga
 // ningún otro endpoint: solo viven en la respuesta de /query/answer.
 // ---------------------------------------------------------------------------
 
@@ -393,7 +393,7 @@ function renderValidationStep(validationStep, d) {
 
   const warningsHtml = warnings.length
     ? `<ul class="warnings-list">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`
-    : `<p class="step-note">Sin advertencias del guardrail (Clase 5).</p>`;
+    : `<p class="step-note">Sin advertencias del guardrail.</p>`;
 
   validationStep.querySelector(".step-body").innerHTML = `
     <div class="pill-row">
@@ -406,7 +406,7 @@ function renderValidationStep(validationStep, d) {
 
 async function runAnswerSteps(question) {
   const sqlStep = addStep("sql", "Generación y ejecución SQL");
-  const validationStep = addStep("validation", "Validación y guardrail (Clases 2-5)");
+  const validationStep = addStep("validation", "Validación y guardrail");
   const answerStep = addStep("answer", "Respuesta sintetizada");
 
   const result = await postJson("/query/answer", { question });
