@@ -14,6 +14,12 @@ datasets/
 *.npy
 *.npz
 
+# LangSmith guarda datasets y experimentos en remoto: no genera archivos
+# locales que deban ignorarse. Cualquier JSONL intermedio sigue cubierto por
+# *.jsonl; solo el golden set canónico se versiona como código de evaluación.
+!tests/evaluation/datasets/
+!tests/evaluation/datasets/dat_ia_golden_v2.jsonl
+
 # Modelos Entrenados
 models/
 checkpoints/
@@ -39,6 +45,8 @@ lightning_logs/
 
 # ==========================================
 __pycache__/
+.pytest_cache/
+.pytest_tmp/
 *.py[cod]
 *$py.class
 .Python
@@ -74,3 +82,7 @@ podria_contener_claves.txt
 Thumbs.db
 
 notebook.ipynb
+project_context.md
+# project_context.xml
+.repomixignore
+repomix.config.json

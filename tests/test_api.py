@@ -39,11 +39,29 @@ def test_health_returns_ok() -> None:
     assert response.json()["service"] == "dat-ia-api"
 
 
+def test_query_answer_route_uses_langsmith_traceable_wrapper() -> None:
+    from app import main as main_module
+
+    route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/query/answer"
+    )
+
+    assert route.endpoint is main_module.query_answer
+    assert getattr(route.endpoint, "__langsmith_traceable__", False) is True
+    assert (
+        route.endpoint.__traceable_config__["metadata"]["operation"]
+        == "api_query_answer"
+    )
+
+
 def test_ready_returns_database_not_configured() -> None:
     response = client.get("/ready")
 
     assert response.status_code == 200
     assert response.json()["database"] == "not_configured"
+    assert response.json()["langsmith"] == "not_connected"
 
 
 def test_ask_returns_prototype_response() -> None:
