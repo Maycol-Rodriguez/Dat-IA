@@ -71,6 +71,21 @@ def _read_limit_value(tree: exp.Expression) -> int | None:
         return None
 
 
+def _is_single_row_aggregate(tree: exp.Select) -> bool:
+    """Detecta un agregado escalar (sin `GROUP BY`) que siempre devuelve 1 fila.
+
+    Un `SELECT SUM(x) FROM t` sin `GROUP BY` es válido en Postgres solo si
+    todas las columnas proyectadas están agregadas (si alguna no lo
+    estuviera, `EXPLAIN` lo rechazaría más adelante), así que basta con
+    confirmar que no hay `GROUP BY` y que aparece al menos una función de
+    agregación entre las columnas seleccionadas.
+    """
+    if tree.args.get("group"):
+        return False
+
+    return any(select_expr.find(exp.AggFunc) for select_expr in tree.selects)
+
+
 def _enforce_row_limit(tree: exp.Select, max_rows: int) -> exp.Select:
     """Garantiza que el AST tenga un `LIMIT` <= `max_rows`.
 
@@ -79,7 +94,16 @@ def _enforce_row_limit(tree: exp.Select, max_rows: int) -> exp.Select:
     siempre. Un `LIMIT` ausente, no numérico (p. ej. `LIMIT ALL`, que
     sqlglot descarta silenciosamente) o mayor a `max_rows` se acota a
     `max_rows`; uno ya menor se conserva.
+
+    No se aplica a un agregado escalar (`_is_single_row_aggregate`): ese
+    SQL siempre devuelve exactamente una fila, así que el `LIMIT` no
+    protege nada y solo introduce ruido que confunde al juez LLM (ver
+    `sql_judge`), que puede leerlo como un truncamiento de datos antes de
+    agregar.
     """
+    if _is_single_row_aggregate(tree):
+        return tree
+
     current = _read_limit_value(tree)
     effective = min(current, max_rows) if current is not None else max_rows
     return tree.limit(effective)

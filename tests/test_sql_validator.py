@@ -179,6 +179,32 @@ def test_validate_sql_treats_limit_all_as_missing() -> None:
     assert "LIMIT 200" in result.sql
 
 
+def test_validate_sql_does_not_inject_limit_on_scalar_aggregate() -> None:
+    sql = "SELECT SUM(payment_value) AS total_revenue FROM olist_order_payments_dataset;"
+
+    result = validate_sql(
+        sql,
+        allowed_tables=["olist_order_payments_dataset"],
+        max_rows=200,
+    )
+
+    assert result.is_valid is True
+    assert "LIMIT" not in result.sql
+
+
+def test_validate_sql_still_caps_grouped_aggregate() -> None:
+    sql = "SELECT seller_id, COUNT(*) AS total FROM olist_order_items_dataset GROUP BY seller_id;"
+
+    result = validate_sql(
+        sql,
+        allowed_tables=["olist_order_items_dataset"],
+        max_rows=200,
+    )
+
+    assert result.is_valid is True
+    assert "LIMIT 200" in result.sql
+
+
 def test_validate_sql_dry_run_uses_bounded_sql() -> None:
     db = _sqlite_db_with_carriers()
     sql = "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;"
