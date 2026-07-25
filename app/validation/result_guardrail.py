@@ -39,6 +39,27 @@ class GroundednessCheck:
     unsupported_numbers: list[str]
 
 
+def _find_metric_column(metric: str, row: dict) -> str | None:
+    """Busca una columna cuyo nombre corresponda al identificador de metric.
+
+    El generador nunca recibe instrucción estricta de nombrar la columna
+    exactamente como el metric (ej. una fila puede traer
+    `avg_resolution_time_hr` en vez de `resolution_time_hr`), así que una
+    igualdad exacta produce falsos positivos casi siempre. Se acepta una
+    coincidencia por substring en cualquier dirección, sin distinguir
+    mayúsculas/minúsculas, como heurística tolerante.
+    """
+    metric_lower = metric.lower()
+
+    for key in row:
+        key_lower = key.lower()
+
+        if metric_lower in key_lower or key_lower in metric_lower:
+            return key
+
+    return None
+
+
 def check_result(
     rows: list[dict],
     optimized_query: OptimizedQuery,
@@ -69,9 +90,19 @@ def check_result(
             f"El resultado se truncó a {row_limit} filas; puede haber más datos."
         )
 
-    for metric in optimized_query.metrics:
-        if rows and all(row.get(metric) is None for row in rows):
-            warnings.append(f"La métrica '{metric}' vino vacía en todas las filas.")
+    if rows:
+        for metric in optimized_query.metrics:
+            column = _find_metric_column(metric, rows[0])
+
+            # Si ninguna columna se parece al nombre del metric, no hay
+            # suficiente evidencia para advertir: puede ser que el SQL
+            # simplemente la haya nombrado de forma irreconocible, no que
+            # el dato venga vacío.
+            if column is None:
+                continue
+
+            if all(row.get(column) is None for row in rows):
+                warnings.append(f"La métrica '{metric}' vino vacía en todas las filas.")
 
     return ResultCheck(ok=not warnings, warnings=warnings)
 

@@ -61,6 +61,34 @@ def test_check_result_ignores_partial_nulls_in_metric() -> None:
     assert result.ok is True
 
 
+def test_check_result_matches_metric_by_substring_alias() -> None:
+    """El generador no siempre alía la columna con el nombre exacto del
+    metric (ej. `avg_resolution_time_hr` en vez de `resolution_time_hr`);
+    la coincidencia por substring debe encontrarla igual.
+    """
+    rows = [
+        {"carrier_name": "DHL", "avg_delay_days": None},
+        {"carrier_name": "FedEx", "avg_delay_days": None},
+    ]
+
+    result = check_result(rows, _optimized_query(metrics=["delay_days"]), row_limit=200)
+
+    assert result.ok is False
+    assert "delay_days" in result.warnings[0]
+
+
+def test_check_result_does_not_warn_when_no_column_resembles_metric() -> None:
+    """Si ninguna columna se parece al nombre del metric, no hay evidencia
+    de que el dato venga vacío -- puede ser solo una diferencia de nombre
+    irreconocible. No advertir evita el falso positivo sistemático.
+    """
+    rows = [{"carrier_name": "DHL", "on_time_rate": 0.97}]
+
+    result = check_result(rows, _optimized_query(metrics=["delay_days"]), row_limit=200)
+
+    assert result.ok is True
+
+
 def test_check_result_warns_when_truncated_to_row_limit() -> None:
     rows = [{"carrier_name": f"carrier_{i}", "delay_days": 1.0} for i in range(3)]
 
