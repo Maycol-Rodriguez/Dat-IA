@@ -163,6 +163,42 @@ def test_llm_optimizer_preserves_temporal_intent_for_monthly_average() -> None:
     }
 
 
+def test_optimizer_includes_category_tables_when_llm_corrects_group_by() -> None:
+    """La pregunta no contiene el literal "por categoria" que exige
+    `_detect_group_by`, así que las reglas solas dejan `group_by=[]` y
+    `suggested_tables=['product_price_history']` (sin las tablas de
+    categoría). Si el LLM corrige el group_by a "category", las tablas
+    sugeridas deben recalcularse con ese group_by final, no quedarse con
+    las que el fallback aislado ya había fijado antes de la corrección.
+    """
+    payload = {
+        "normalized_question": (
+            "Identificar la categoria de producto con el precio "
+            "promedio mas bajo."
+        ),
+        "intent": "ranking",
+        "operation": "rank_asc",
+        "metrics": ["price"],
+        "filters": [],
+        "date_range": None,
+        "group_by": ["category"],
+        "context": [],
+        "suggested_tables": [],
+    }
+
+    result = optimize_query(
+        "¿Qué categoría de producto tiene el precio promedio más bajo?",
+        llm=FakeOptimizerLlm(payload),
+    )
+
+    assert result.group_by == ["category"]
+    assert result.suggested_tables == [
+        "product_price_history",
+        "olist_products_dataset",
+        "product_category_name_translation",
+    ]
+
+
 def test_optimizer_falls_back_to_rules_when_llm_fails() -> None:
     result = optimize_query(
         "Que transportista tiene la mayor tasa de cumplimiento?",
@@ -312,7 +348,14 @@ def test_rule_based_optimizer_canonicalizes_support_status(
     ]
 
 
-def test_optimizer_prefers_canonical_support_metric() -> None:
+def test_optimizer_prefers_llm_metric_over_rules_when_valid() -> None:
+    """El LLM gana sobre las reglas cuando propone un metric del catálogo
+    canónico (ALLOWED_METRICS), aunque las reglas hubieran elegido otro.
+    Antes las reglas ganaban siempre; se invirtió la precedencia porque el
+    detector por reglas tiene colisiones conocidas (ver query_optimizer.py)
+    y el LLM es más confiable para desambiguar vocabulario de negocio,
+    siempre que el valor propuesto esté dentro del catálogo cerrado.
+    """
     payload = {
         "normalized_question": (
             "Contar los tickets de soporte sin resolver."
@@ -336,7 +379,7 @@ def test_optimizer_prefers_canonical_support_metric() -> None:
         llm=FakeOptimizerLlm(payload),
     )
 
-    assert result.metrics == ["ticket_count"]
+    assert result.metrics == ["incidents_count"]
     assert result.to_dict()["filters"] == [
         {
             "field": "resolved",
@@ -344,10 +387,41 @@ def test_optimizer_prefers_canonical_support_metric() -> None:
             "value": "false",
         }
     ]
-    assert result.context == ["soporte"]
+    # context/suggested_tables se recalculan a partir del metric final
+    # ("incidents_count"), no del texto crudo de la pregunta: por eso
+    # apuntan al dominio de incidencias y no al de soporte, aunque la
+    # pregunta hable de "tickets". Es el comportamiento correcto: si el
+    # metric ganador es de otro dominio, las tablas deben seguir a la
+    # métrica, no al fallback aislado.
+    assert result.context == ["incidencias"]
     assert result.suggested_tables == [
-        "customer_support_tickets",
+        "delivery_incidents",
     ]
+
+
+def test_optimizer_falls_back_to_rules_when_llm_metric_is_not_canonical() -> None:
+    """Si el LLM propone un metric fuera de ALLOWED_METRICS (alucinado o
+    con nombre libre), las reglas siguen siendo el respaldo real.
+    """
+    payload = {
+        "normalized_question": (
+            "Contar los tickets de soporte sin resolver."
+        ),
+        "intent": "count",
+        "metrics": ["support_ticket_backlog"],
+        "filters": [],
+        "date_range": None,
+        "group_by": [],
+        "context": [],
+        "suggested_tables": [],
+    }
+
+    result = optimize_query(
+        "¿Cuántos tickets de soporte están sin resolver?",
+        llm=FakeOptimizerLlm(payload),
+    )
+
+    assert result.metrics == ["ticket_count"]
 
 
 def test_pending_orders_are_not_support_tickets() -> None:
@@ -500,7 +574,12 @@ def test_count_intent_takes_precedence_over_total_wording() -> None:
     assert result.filters[0].value == "false"
 
 
-def test_payload_optimizer_recomputes_operation_from_final_intent() -> None:
+def test_payload_optimizer_prefers_llm_operation_when_valid() -> None:
+    """El LLM gana sobre `_detect_operation` cuando propone un valor dentro
+    de ALLOWED_OPERATIONS, aunque contradiga lo que las reglas habrían
+    calculado a partir del intent final. Antes `operation` siempre se
+    recalculaba por reglas y el LLM nunca podía influir en este campo.
+    """
     result = _optimized_query_from_payload(
         original_question="Tickets de soporte abiertos.",
         payload={
@@ -514,9 +593,27 @@ def test_payload_optimizer_recomputes_operation_from_final_intent() -> None:
 
     assert result.optimizer == "gemini"
     assert result.intent == "count"
-    assert result.operation == "count"
+    assert result.operation == "sum"
     assert result.metrics == ["ticket_count"]
     assert len(result.filters) == 1
     assert result.filters[0].field == "resolved"
     assert result.filters[0].operator == "="
     assert result.filters[0].value == "false"
+
+
+def test_payload_optimizer_falls_back_to_rules_when_llm_operation_invalid() -> None:
+    """Si el LLM no propone `operation` o propone un valor fuera del
+    catálogo, `_detect_operation` sigue siendo el respaldo real.
+    """
+    result = _optimized_query_from_payload(
+        original_question="Tickets de soporte abiertos.",
+        payload={
+            "intent": "count",
+            "normalized_question": (
+                "Contar los tickets de soporte abiertos."
+            ),
+            "operation": "not_a_real_operation",
+        },
+    )
+
+    assert result.operation == "count"

@@ -23,6 +23,36 @@ ALLOWED_INTENTS = {
     "detail",
 }
 
+ALLOWED_OPERATIONS = {
+    "rank_desc",
+    "rank_asc",
+    "rank_nearest_average",
+    "compare",
+    "median",
+    "average",
+    "count",
+    "sum",
+    "detail",
+}
+
+ALLOWED_METRICS = {
+    "revenue",
+    "order_count",
+    "on_time_rate",
+    "freight_value",
+    "review_score",
+    "stock_qty",
+    "reorder_point",
+    "returns_count",
+    "refund_amount",
+    "incidents_count",
+    "compensation_value",
+    "ticket_count",
+    "resolution_time_hr",
+    "satisfaction_score",
+    "price",
+}
+
 
 class _OptimizerFilterPayload(BaseModel):
     field: str
@@ -35,6 +65,7 @@ class _OptimizerPayload(BaseModel):
 
     normalized_question: str
     intent: str
+    operation: str = ""
     metrics: list[str] = Field(default_factory=list)
     filters: list[_OptimizerFilterPayload] = Field(default_factory=list)
     date_range: dict[str, str] | None = None
@@ -176,6 +207,7 @@ Return only valid JSON with this structure:
 {{
   "normalized_question": "clear rewritten question, always in Spanish",
   "intent": "ranking | count | aggregation | temporal_trend | comparison | detail",
+  "operation": "rank_desc | rank_asc | count | sum | average | median | compare | rank_nearest_average | detail",
   "metrics": ["metric names"],
   "filters": [
     {{"field": "field_name", "operator": "=", "value": "value"}}
@@ -186,11 +218,29 @@ Return only valid JSON with this structure:
   "suggested_tables": ["table names"]
 }}
 
+Operation meanings (pick exactly one):
+- rank_desc: the highest/best/most of something (e.g. "seller with the most
+  products sold", "best rated carrier"). Also use this for a plain
+  superlative with no explicit direction word, since "most/best X" is a
+  descending ranking even without the word "mayor" or "top".
+- rank_asc: the lowest/worst/least of something.
+- count: how many records match a condition.
+- sum: a total/accumulated amount.
+- average: a mean value.
+- median: a median value.
+- compare: two or more groups contrasted in the same query.
+- rank_nearest_average: ordered by closeness to an average value.
+- detail: listing raw records, no aggregation and no ranking.
+
 Use these metric names when applicable:
 revenue, order_count, on_time_rate, freight_value, review_score,
 stock_qty, reorder_point, returns_count, refund_amount,
 incidents_count, compensation_value, ticket_count,
 resolution_time_hr, satisfaction_score, price.
+Only use "revenue" when the question is explicitly about money (income,
+total billed, amount charged). A question about how many units/products
+were sold, without a monetary word, is "order_count" or no metric at all
+— never "revenue".
 
 Use these table names when applicable:
 olist_orders_dataset, olist_order_items_dataset, olist_customers_dataset,
@@ -230,25 +280,46 @@ def _optimized_query_from_payload(
     if fallback.intent == "temporal_trend":
         intent = "temporal_trend"
 
-    # La operación participa en la compatibilidad de Query Memory.
-    # Se recalcula de forma determinística usando la intención final
-    # validada y canonicalizada.
-    operation = _detect_operation(
-        _normalize_for_matching(original_question),
-        intent=intent,
-    )
+    # El LLM gana si eligió un valor dentro del catálogo cerrado; las
+    # reglas (_detect_operation) quedan como respaldo real, no como
+    # override permanente, igual que ya pasa con `intent`.
+    llm_operation = str(payload.get("operation") or "").strip()
 
-    # Las métricas canónicas detectadas por reglas deben prevalecer
-    # sobre etiquetas variables o incorrectas generadas por el LLM.
-    metrics = fallback.metrics or _ensure_text_list(payload.get("metrics"))
+    if llm_operation in ALLOWED_OPERATIONS:
+        operation = llm_operation
+    else:
+        operation = _detect_operation(
+            _normalize_for_matching(original_question),
+            intent=intent,
+        )
+
+    # Mismo criterio para metrics: el LLM gana si devolvió al menos un
+    # nombre dentro del catálogo canónico (ALLOWED_METRICS); las reglas
+    # solo entran cuando el LLM no propuso ningún metric válido.
+    llm_metrics = [
+        metric
+        for metric in _ensure_text_list(payload.get("metrics"))
+        if metric in ALLOWED_METRICS
+    ]
+    metrics = llm_metrics or fallback.metrics
     group_by = _ensure_text_list(payload.get("group_by")) or fallback.group_by
 
-    # Estos campos forman parte de la compatibilidad estructural de Query
-    # Memory. Cuando las reglas reconocen el dominio, sus valores canónicos
-    # son más estables que etiquetas libres generadas por el LLM.
-    context = fallback.context or _ensure_text_list(payload.get("context"))
+    # Recalculado con `metrics`/`group_by` ya finales, no con los que
+    # `fallback` calculó de forma aislada: si el LLM corrigió el group_by
+    # (ej. detectó "category" donde las reglas no vieron el literal "por
+    # categoria"), las tablas sugeridas deben reflejar esa corrección en
+    # vez de quedarse con las tablas incompletas que las reglas habrían
+    # inferido solas — de lo contrario la recuperación de DDL se queda
+    # sin `olist_products_dataset`/`product_category_name_translation`
+    # aunque el group_by final sí sea correcto.
+    rule_context, rule_suggested_tables = _detect_context_and_tables(
+        normalized_text=_normalize_for_matching(original_question),
+        metrics=metrics,
+        group_by=group_by,
+    )
+    context = rule_context or _ensure_text_list(payload.get("context"))
     suggested_tables = (
-        fallback.suggested_tables
+        rule_suggested_tables
         or _ensure_text_list(payload.get("suggested_tables"))
     )
 
