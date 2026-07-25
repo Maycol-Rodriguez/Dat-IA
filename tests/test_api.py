@@ -56,6 +56,31 @@ def test_query_answer_route_uses_langsmith_traceable_wrapper() -> None:
     )
 
 
+def test_evaluator_optimizer_functions_are_traceable() -> None:
+    """El bucle de autocorrección y sus etapas deben quedar trazados en
+    LangSmith igual que el resto del pipeline (Clase 4/5 del curso), no
+    solo el endpoint de nivel superior.
+    """
+    from app import main as main_module
+
+    expected_operations = {
+        "generate_validated_sql": "sql_validation_loop",
+        "validate_sql_stage": "sql_static_validation",
+        "judge_sql_stage": "sql_judgement",
+        "check_result_stage": "result_guardrail",
+        "check_groundedness_stage": "groundedness_check",
+    }
+
+    for function_name, expected_operation in expected_operations.items():
+        function = getattr(main_module, function_name)
+
+        assert getattr(function, "__langsmith_traceable__", False) is True
+        assert (
+            function.__traceable_config__["metadata"]["operation"]
+            == expected_operation
+        )
+
+
 def test_ready_returns_database_not_configured() -> None:
     response = client.get("/ready")
 

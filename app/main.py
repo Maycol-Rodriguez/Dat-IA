@@ -35,9 +35,14 @@ from app.observability import (
 )
 
 from app.optimizer.query_optimizer import OptimizedQuery, optimize_query
-from app.validation.result_guardrail import check_groundedness, check_result
+from app.validation.result_guardrail import (
+    GroundednessCheck,
+    ResultCheck,
+    check_groundedness,
+    check_result,
+)
 from app.validation.sql_judge import SqlVerdict, judge_sql
-from app.validation.sql_validator import validate_sql
+from app.validation.sql_validator import SqlValidation, validate_sql
 
 import torch
 from transformers import (
@@ -1123,6 +1128,12 @@ def build_rag_response(
     return parsed
 
 
+@traceable_stage(
+    name="dat-ia.pipeline.generate-validated-sql",
+    run_type="chain",
+    metadata=_trace_metadata(operation="sql_validation_loop"),
+    tags=_trace_tags(operation="sql_validation_loop"),
+)
 def generate_validated_sql(
     question: str,
     ddl: str,
@@ -1181,7 +1192,7 @@ def generate_validated_sql(
         if rag_response.sources == "":
             return rag_response, None, attempt
 
-        validation = validate_sql(rag_response.sql, allowed_tables, db=db)
+        validation = validate_sql_stage(rag_response.sql, allowed_tables, db=db)
         if not validation.is_valid:
             feedback = SqlVerdict(
                 issues=[validation.error],
@@ -1197,7 +1208,7 @@ def generate_validated_sql(
         # nunca llegaba a execute_sql.
         rag_response = rag_response.model_copy(update={"sql": validation.sql})
 
-        verdict = judge_sql(optimized_query, rag_response.sql, judge_llm)
+        verdict = judge_sql_stage(optimized_query, rag_response.sql, judge_llm)
         if verdict.is_valid and verdict.answers_question:
             return rag_response, verdict, attempt
 
@@ -1352,6 +1363,71 @@ def optimize_query_stage(
         question,
         llm=llm,
     )
+
+
+@traceable_stage(
+    name="dat-ia.validation.validate-sql",
+    run_type="tool",
+    metadata=_trace_metadata(operation="sql_static_validation"),
+    tags=_trace_tags(operation="sql_static_validation"),
+)
+def validate_sql_stage(
+    sql: str,
+    allowed_tables: list[str],
+    db: SQLDatabase | None = None,
+) -> SqlValidation:
+    """Ejecuta el validador determinístico dentro del árbol de trazas."""
+    return validate_sql(sql, allowed_tables, db=db)
+
+
+@traceable_stage(
+    name="dat-ia.llm.judge-sql",
+    run_type="llm",
+    metadata=_trace_metadata(
+        operation="sql_judgement",
+        llm_provider="google",
+        llm_model=MODEL,
+    ),
+    tags=_trace_tags(
+        operation="sql_judgement",
+        llm_provider="google",
+    ),
+)
+def judge_sql_stage(
+    optimized_query: OptimizedQuery,
+    sql: str,
+    llm: Any,
+) -> SqlVerdict:
+    """Ejecuta el juez LLM dentro del árbol de trazas."""
+    return judge_sql(optimized_query, sql, llm)
+
+
+@traceable_stage(
+    name="dat-ia.validation.check-result",
+    run_type="tool",
+    metadata=_trace_metadata(operation="result_guardrail"),
+    tags=_trace_tags(operation="result_guardrail"),
+)
+def check_result_stage(
+    rows: list[dict],
+    optimized_query: OptimizedQuery,
+) -> ResultCheck:
+    """Ejecuta el guardrail de resultados dentro del árbol de trazas."""
+    return check_result(rows, optimized_query)
+
+
+@traceable_stage(
+    name="dat-ia.validation.check-groundedness",
+    run_type="tool",
+    metadata=_trace_metadata(operation="groundedness_check"),
+    tags=_trace_tags(operation="groundedness_check"),
+)
+def check_groundedness_stage(
+    answer: str,
+    rows: list[dict],
+) -> GroundednessCheck:
+    """Ejecuta la verificación de groundedness dentro del árbol de trazas."""
+    return check_groundedness(answer, rows)
 
 
 # ---------------------------------------------------------------------------
@@ -1803,7 +1879,7 @@ async def query_answer(request: QueryRequest):
         )
 
     rows = execution["rows"]
-    result_check = check_result(rows, optimized_query)
+    result_check = check_result_stage(rows, optimized_query)
 
     answer_text = synthesize_answer(
         answer_llm,
@@ -1811,7 +1887,7 @@ async def query_answer(request: QueryRequest):
         rag_response.sql,
         rows,
     )
-    groundedness = check_groundedness(answer_text, rows)
+    groundedness = check_groundedness_stage(answer_text, rows)
 
     if not groundedness.ok:
         # Una sola regeneración con instrucción estricta, no un bucle nuevo:
@@ -1823,7 +1899,7 @@ async def query_answer(request: QueryRequest):
             rows,
             strict_numbers=True,
         )
-        groundedness = check_groundedness(answer_text, rows)
+        groundedness = check_groundedness_stage(answer_text, rows)
 
     warnings = list(result_check.warnings)
     if not groundedness.ok:
