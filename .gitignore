@@ -16,9 +16,11 @@ datasets/
 
 # LangSmith guarda datasets y experimentos en remoto: no genera archivos
 # locales que deban ignorarse. Cualquier JSONL intermedio sigue cubierto por
-# *.jsonl; solo el golden set canónico se versiona como código de evaluación.
+# *.jsonl; solo el golden set canónico y su copia de revisión se versionan
+# como código de evaluación.
 !tests/evaluation/datasets/
 !tests/evaluation/datasets/dat_ia_golden_v2.jsonl
+!tests/evaluation/datasets/dat_ia_golden_v2_refreshed.jsonl
 
 # Modelos Entrenados
 models/
