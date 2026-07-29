@@ -254,82 +254,130 @@ function pill(text, variant) {
 }
 
 // ---------------------------------------------------------------------------
-// Paso 1 — Filtro de seguridad (/query/shield)
+// Paso 1 — Filtro de seguridad
+// Paso 2 — Optimizador de consulta
+// Paso 3 — Recuperación de esquema (RAG)
+//
+// Los tres se pintan a partir de la MISMA respuesta de /query/answer (que
+// ya calcula shield/optimizer/retrieval internamente): la UI ya no llama
+// /query/shield ni /query/optimize por separado, para no duplicar la
+// clasificación de seguridad ni la llamada al optimizer (Gemini) por
+// pregunta. Esos dos endpoints siguen existiendo para uso independiente.
 // ---------------------------------------------------------------------------
 
-async function runShieldStep(question) {
+function renderShieldStep(d) {
   const step = addStep("shield", "Filtro de seguridad");
-  const result = await postJson("/query/shield", { text_input: question });
+  const shield = d.shield;
 
-  if (!result.ok) {
-    setStepStatus(step, "error", "error");
+  if (!shield) {
+    setStepStatus(step, "skipped", "sin datos");
     step.querySelector(".step-body").innerHTML =
-      `<p class="step-note">${escapeHtml(result.data.detail || "No se pudo clasificar la consulta.")}</p>`;
-    return { blocked: false, error: true };
+      `<p class="step-note">El backend no devolvió datos del filtro de seguridad.</p>`;
+    return step;
   }
 
-  const { status, confidence_note } = result.data;
-  const isMalicious = status === "MALICIOUS";
-
+  const isMalicious = shield.label === "MALICIOUS";
   setStepStatus(step, isMalicious ? "error" : "ok", isMalicious ? "bloqueado" : "aprobado");
   step.querySelector(".step-body").innerHTML = `
     <div class="pill-row">
-      ${pill(status, isMalicious ? "danger" : "success")}
-      ${pill(confidence_note || "", "")}
+      ${pill(shield.label, isMalicious ? "danger" : "success")}
+      ${pill(`score: ${shield.score.toFixed(4)}`, "")}
     </div>
     <p class="step-note">Modelo: SQLPromptShield (salmane11/SQLPromptShield)</p>
   `;
-
-  return { blocked: isMalicious, error: false };
+  return step;
 }
 
-// ---------------------------------------------------------------------------
-// Paso 2 — Optimizador de consulta (/query/optimize)
-// ---------------------------------------------------------------------------
-
-async function runOptimizerStep(question) {
+function renderOptimizerStep(d) {
   const step = addStep("optimizer", "Optimizador de consulta");
-  const result = await postJson("/query/optimize", { question });
+  const opt = d.optimized;
 
-  if (!result.ok) {
-    setStepStatus(step, "error", "error");
+  if (!opt) {
+    setStepStatus(step, "skipped", "omitido");
     step.querySelector(".step-body").innerHTML =
-      `<p class="step-note">${escapeHtml(result.data.detail || "No se pudo optimizar la pregunta.")}</p>`;
-    return { ok: false, data: null };
+      `<p class="step-note">No se llegó a ejecutar el optimizador.</p>`;
+    return step;
   }
 
-  const d = result.data;
-  setStepStatus(step, "ok", d.optimizer || "listo");
+  setStepStatus(step, "ok", opt.optimizer || "listo");
 
-  const filtersHtml = (d.filters || [])
+  const filtersHtml = (opt.filters || [])
     .map((f) => `${escapeHtml(f.field)} ${escapeHtml(f.operator)} ${escapeHtml(f.value)}`)
     .join(", ") || "—";
 
-  const dateRangeHtml = d.date_range
-    ? `${escapeHtml(d.date_range.start_date)} → ${escapeHtml(d.date_range.end_date)}`
+  const dateRangeHtml = opt.date_range
+    ? `${escapeHtml(opt.date_range.start_date)} → ${escapeHtml(opt.date_range.end_date)}`
     : "—";
 
   step.querySelector(".step-body").innerHTML = `
     <div class="pill-row">
-      ${pill(d.intent || "-", "accent")}
-      ${pill(d.operation || "-", "")}
-      ${pill(`optimizer: ${d.optimizer || "-"}`, "")}
+      ${pill(opt.intent || "-", "accent")}
+      ${pill(opt.operation || "-", "")}
+      ${pill(`optimizer: ${opt.optimizer || "-"}`, "")}
     </div>
     <dl class="kv-grid">
-      <dt>Pregunta normalizada</dt><dd>${escapeHtml(d.normalized_question || "—")}</dd>
-      <dt>Métricas</dt><dd>${(d.metrics || []).map(escapeHtml).join(", ") || "—"}</dd>
+      <dt>Pregunta normalizada</dt><dd>${escapeHtml(opt.normalized_question || "—")}</dd>
+      <dt>Métricas</dt><dd>${(opt.metrics || []).map(escapeHtml).join(", ") || "—"}</dd>
       <dt>Filtros</dt><dd>${filtersHtml}</dd>
       <dt>Rango de fechas</dt><dd>${dateRangeHtml}</dd>
-      <dt>Agrupación</dt><dd>${(d.group_by || []).map(escapeHtml).join(", ") || "—"}</dd>
-      <dt>Tablas sugeridas</dt><dd>${(d.suggested_tables || []).map(escapeHtml).join(", ") || "—"}</dd>
+      <dt>Agrupación</dt><dd>${(opt.group_by || []).map(escapeHtml).join(", ") || "—"}</dd>
+      <dt>Tablas sugeridas</dt><dd>${(opt.suggested_tables || []).map(escapeHtml).join(", ") || "—"}</dd>
     </dl>
   `;
+  return step;
+}
 
-  return { ok: true, data: d };
+function renderRetrievalStep(d) {
+  const step = addStep("retrieval", "Recuperación de esquema (RAG)");
+  const retrieval = d.retrieval;
+
+  if (!retrieval) {
+    setStepStatus(step, "skipped", "omitido");
+    step.querySelector(".step-body").innerHTML =
+      `<p class="step-note">No se ejecutó la recuperación de esquema.</p>`;
+    return step;
+  }
+
+  const selected = retrieval.selected_tables || [];
+  const noneSelected = selected.length === 0;
+  setStepStatus(
+    step,
+    noneSelected ? "warn" : "ok",
+    noneSelected ? "0 tablas superaron el umbral" : `${selected.length} tabla(s) seleccionada(s)`
+  );
+
+  const sorted = [...(retrieval.candidates || [])].sort((a, b) => a.distance - b.distance);
+  const rows = sorted
+    .map(
+      (c) => `
+      <tr>
+        <td>${escapeHtml(c.table)}</td>
+        <td class="numeric">${c.distance.toFixed(4)}</td>
+        <td>${escapeHtml(c.source)}</td>
+        <td>${c.passed_threshold ? pill("sí", "success") : pill("no", "danger")}</td>
+      </tr>`
+    )
+    .join("");
+
+  step.querySelector(".step-body").innerHTML = `
+    <div class="pill-row">
+      ${pill(`umbral: ${retrieval.distance_threshold}`, "accent")}
+      ${pill(`seleccionadas: ${selected.join(", ") || "ninguna"}`, "")}
+    </div>
+    <div class="result-table-wrap">
+      <table class="result-table">
+        <thead>
+          <tr><th>Tabla</th><th class="numeric">Distancia</th><th>Origen</th><th>¿Pasó umbral?</th></tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="4">Sin candidatos.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+  return step;
 }
 
 // ---------------------------------------------------------------------------
-// Paso 3 — Generación + ejecución SQL, y paso 4 — respuesta (/query/answer)
+// Paso 4 — Generación + ejecución SQL, y paso 5 — respuesta (/query/answer)
 // ---------------------------------------------------------------------------
 
 function renderResultTable(table) {
@@ -364,8 +412,8 @@ function renderResultTable(table) {
 
 function statusPillVariant(status) {
   if (status === "success") return "success";
-  if (status === "error" || status === "rejected") return "danger";
-  if (status === "unknown" || status === "prototype") return "warning";
+  if (status === "error" || status === "rejected" || status === "blocked") return "danger";
+  if (status === "unknown" || status === "prototype" || status === "no_context") return "warning";
   return "";
 }
 
@@ -405,24 +453,39 @@ function renderValidationStep(validationStep, d) {
 }
 
 async function runAnswerSteps(question) {
-  const sqlStep = addStep("sql", "Generación y ejecución SQL");
-  const validationStep = addStep("validation", "Validación y guardrail");
-  const answerStep = addStep("answer", "Respuesta sintetizada");
-
   const result = await postJson("/query/answer", { question });
 
   if (!result.ok) {
     const detail = result.data.detail || "No se pudo completar la consulta.";
-    setStepStatus(sqlStep, "error", `HTTP ${result.status || "?"}`);
-    sqlStep.querySelector(".step-body").innerHTML = `<p class="step-note">${escapeHtml(detail)}</p>`;
-    setStepStatus(validationStep, "skipped", "omitido");
-    validationStep.querySelector(".step-body").innerHTML = `<p class="step-note">No se llegó a validar ningún SQL.</p>`;
-    setStepStatus(answerStep, "skipped", "omitido");
-    answerStep.querySelector(".step-body").innerHTML = `<p class="step-note">No se generó respuesta.</p>`;
-    return { ok: false, answer: detail };
+    const failStep = addStep("sql", "Generación y ejecución SQL");
+    setStepStatus(failStep, "error", `HTTP ${result.status || "?"}`);
+    failStep.querySelector(".step-body").innerHTML = `<p class="step-note">${escapeHtml(detail)}</p>`;
+    return { ok: false, answer: detail, status: "error" };
   }
 
   const d = result.data;
+
+  renderShieldStep(d);
+
+  // El shield y la falta de contexto se resuelven en un solo paso: no
+  // tiene sentido pintar SQL/validación/respuesta vacíos cuando el
+  // pipeline se detuvo antes de generar nada (igual que ya hacía la UI
+  // cuando el shield bloqueaba, antes de tener múltiples llamadas).
+  if (d.status === "blocked") {
+    return { ok: true, answer: d.answer, status: d.status };
+  }
+
+  renderOptimizerStep(d);
+  renderRetrievalStep(d);
+
+  if (d.status === "no_context") {
+    return { ok: true, answer: d.answer, status: d.status };
+  }
+
+  const sqlStep = addStep("sql", "Generación y ejecución SQL");
+  const validationStep = addStep("validation", "Validación y guardrail");
+  const answerStep = addStep("answer", "Respuesta sintetizada");
+
   const formattedSql = formatSql(d.sql) || "—";
 
   setStepStatus(sqlStep, statusPillVariant(d.status) === "danger" ? "error" : "ok", d.status);
@@ -452,33 +515,29 @@ async function runAnswerSteps(question) {
 
 // ---------------------------------------------------------------------------
 // Orquestación de una consulta completa
+//
+// Una sola llamada a /query/answer basta para todo el pipeline; los pasos
+// se pintan todos juntos cuando esa llamada responde (sin reveal
+// progresivo por-paso, que exigiría streaming del backend).
 // ---------------------------------------------------------------------------
 
 async function handleQuestion(question) {
   resetResultPanel(question);
   resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  const shieldResult = await runShieldStep(question);
-
-  if (shieldResult.blocked) {
-    summaryText.textContent = "Bloqueado por el filtro de seguridad";
-    pipelineDetails.removeAttribute("open");
-    answerTextEl.textContent =
-      "Esta consulta fue bloqueada por el filtro de seguridad (SQLPromptShield). Reformula tu pregunta.";
-    return;
-  }
-
-  summaryText.textContent = shieldResult.error
-    ? "El filtro de seguridad no respondió; continuando de todas formas"
-    : "Optimizando la pregunta…";
-
-  await runOptimizerStep(question);
-
-  summaryText.textContent = "Generando y ejecutando SQL…";
+  summaryText.textContent = "Ejecutando pipeline…";
   const answerResult = await runAnswerSteps(question);
 
   pipelineDetails.removeAttribute("open");
-  summaryText.textContent = "Pipeline completado";
+
+  if (answerResult.status === "blocked") {
+    summaryText.textContent = "Bloqueado por el filtro de seguridad";
+  } else if (answerResult.status === "no_context") {
+    summaryText.textContent = "No se encontró contexto relevante";
+  } else {
+    summaryText.textContent = "Pipeline completado";
+  }
+
   answerTextEl.textContent = answerResult.answer || "No se recibió respuesta.";
 }
 
