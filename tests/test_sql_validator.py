@@ -141,75 +141,23 @@ def test_validate_sql_rejects_non_select_statement() -> None:
     assert result.error == "Solo se permiten sentencias SELECT."
 
 
-def test_validate_sql_injects_limit_when_missing() -> None:
+def test_validate_sql_does_not_add_or_change_limit() -> None:
     sql = "SELECT carrier_name FROM carriers;"
 
     result = validate_sql(sql, allowed_tables=["carriers"])
 
     assert result.is_valid is True
-    assert "LIMIT 200" in result.sql
-
-
-def test_validate_sql_caps_limit_above_max_rows() -> None:
-    sql = "SELECT carrier_name FROM carriers LIMIT 5000;"
-
-    result = validate_sql(sql, allowed_tables=["carriers"], max_rows=200)
-
-    assert result.is_valid is True
-    assert "LIMIT 200" in result.sql
-    assert "LIMIT 5000" not in result.sql
-
-
-def test_validate_sql_preserves_limit_below_max_rows() -> None:
-    sql = "SELECT carrier_name FROM carriers LIMIT 5;"
-
-    result = validate_sql(sql, allowed_tables=["carriers"], max_rows=200)
-
-    assert result.is_valid is True
-    assert "LIMIT 5" in result.sql
-    assert "LIMIT 200" not in result.sql
-
-
-def test_validate_sql_treats_limit_all_as_missing() -> None:
-    sql = "SELECT carrier_name FROM carriers LIMIT ALL;"
-
-    result = validate_sql(sql, allowed_tables=["carriers"], max_rows=200)
-
-    assert result.is_valid is True
-    assert "LIMIT 200" in result.sql
-
-
-def test_validate_sql_does_not_inject_limit_on_scalar_aggregate() -> None:
-    sql = "SELECT SUM(payment_value) AS total_revenue FROM olist_order_payments_dataset;"
-
-    result = validate_sql(
-        sql,
-        allowed_tables=["olist_order_payments_dataset"],
-        max_rows=200,
-    )
-
-    assert result.is_valid is True
     assert "LIMIT" not in result.sql
+    assert result.sql == "SELECT carrier_name FROM carriers"
 
 
-def test_validate_sql_still_caps_grouped_aggregate() -> None:
-    sql = "SELECT seller_id, COUNT(*) AS total FROM olist_order_items_dataset GROUP BY seller_id;"
+def test_validate_sql_preserves_sql_formatting_verbatim() -> None:
+    """validate_sql ya no reserializa con sqlglot: el SQL "descuidado" del
+    LLM (minúsculas, cast abreviado, alias implícito) debe pasar intacto.
+    """
+    sql = "select price::text as total from olist_order_items_dataset;"
 
-    result = validate_sql(
-        sql,
-        allowed_tables=["olist_order_items_dataset"],
-        max_rows=200,
-    )
-
-    assert result.is_valid is True
-    assert "LIMIT 200" in result.sql
-
-
-def test_validate_sql_dry_run_uses_bounded_sql() -> None:
-    db = _sqlite_db_with_carriers()
-    sql = "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;"
-
-    result = validate_sql(sql, allowed_tables=["carriers"], db=db, max_rows=1)
+    result = validate_sql(sql, allowed_tables=["olist_order_items_dataset"])
 
     assert result.is_valid is True
-    assert "LIMIT 1" in result.sql
+    assert result.sql == "select price::text as total from olist_order_items_dataset"
