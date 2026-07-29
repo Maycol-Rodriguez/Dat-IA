@@ -816,6 +816,32 @@ def test_query_embeddings_returns_empty_when_nothing_passes_threshold() -> None:
     assert result.distance == []
 
 
+def test_query_embeddings_keeps_raw_candidates_for_diagnosis_when_none_pass() -> None:
+    """Aunque ninguna tabla supere el umbral, deben verse los candidatos
+    crudos (con su distancia real) para poder diagnosticar el "casi".
+    """
+    vectorstore = FakeVectorStore(
+        [
+            (
+                Document(
+                    page_content="Tabla no relacionada.",
+                    metadata={"nombre": "otra_tabla", "ddl": "CREATE TABLE otra (...);"},
+                ),
+                0.83,
+            )
+        ]
+    )
+
+    result = query_embeddings(vectorstore, "pregunta fuera de dominio", distance_threshold=0.7)
+
+    assert result.tabla == []
+    assert len(result.candidatos) == 1
+    assert result.candidatos[0].table == "otra_tabla"
+    assert result.candidatos[0].distance == 0.83
+    assert result.candidatos[0].source == "semantic"
+    assert result.candidatos[0].passed_threshold is False
+
+
 def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
     from app import main as main_module
 

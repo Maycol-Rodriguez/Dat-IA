@@ -355,11 +355,27 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class RetrievalCandidate(BaseModel):
+    """Candidato de recuperación semántica, pase o no el umbral de distancia.
+
+    Existe para diagnóstico: cuando ninguna tabla supera el umbral,
+    `EmbeddingsResponse.tabla`/`.ddl` quedan vacíos y no hay forma de saber
+    qué tan cerca estuvo la más próxima. `candidatos` conserva siempre los
+    resultados crudos (antes de filtrar) para poder mostrarlos.
+    """
+
+    table: str
+    distance: float
+    source: Literal["exact", "semantic"]
+    passed_threshold: bool
+
+
 class EmbeddingsResponse(BaseModel):
     tabla: list[str]
     descripcion: list[str]
     distance: list[float]
     ddl: str
+    candidatos: list[RetrievalCandidate] = Field(default_factory=list)
 
 
 class ResultTableColumn(BaseModel):
@@ -603,11 +619,26 @@ def query_embeddings(
         query, k=10
     )  # trae más candidatos
 
+    # Candidatos crudos (antes de filtrar), para diagnóstico: si nada pasa
+    # el umbral más abajo, esta lista es la única forma de ver qué tan
+    # cerca estuvo la tabla más próxima.
+    candidatos = [
+        RetrievalCandidate(
+            table=doc.metadata["nombre"],
+            distance=dist,
+            source="semantic",
+            passed_threshold=dist <= distance_threshold,
+        )
+        for doc, dist in resultados
+    ]
+
     # Filtrar por umbral de distancia
     filtrados = [(doc, dist) for doc, dist in resultados if dist <= distance_threshold]
 
     if not filtrados:
-        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="", distance=[])
+        return EmbeddingsResponse(
+            tabla=[], descripcion=[], ddl="", distance=[], candidatos=candidatos
+        )
 
     listTablas = [doc.metadata["nombre"] for doc, dist in filtrados]
     listDescripciones = [doc.page_content for doc, dist in filtrados]
@@ -621,6 +652,7 @@ def query_embeddings(
         descripcion=listDescripciones,
         ddl=ddls,
         distance=listDistances,
+        candidatos=candidatos,
     )
 
 
@@ -652,6 +684,7 @@ def _get_suggested_table_embeddings(
     descriptions = []
     distances = []
     ddls = []
+    candidatos: list[RetrievalCandidate] = []
     seen = set()
 
     for table_name in suggested_tables or []:
@@ -709,12 +742,21 @@ def _get_suggested_table_embeddings(
             distances.append(0.0)
             ddls.append(ddl)
             seen.add(table)
+            candidatos.append(
+                RetrievalCandidate(
+                    table=table,
+                    distance=0.0,
+                    source="exact",
+                    passed_threshold=True,
+                )
+            )
 
     return EmbeddingsResponse(
         tabla=tables,
         descripcion=descriptions,
         distance=distances,
         ddl="\n".join(ddls),
+        candidatos=candidatos,
     )
 
 
@@ -781,6 +823,10 @@ def retrieve_ddl_context(
     tables = list(exact.tabla)
     descriptions = list(exact.descripcion)
     distances = list(exact.distance)
+    # Candidatos de ambas fuentes, sin deduplicar contra `tables`: el
+    # propósito es justamente que una tabla que no llegó a `tabla`/`ddl`
+    # (la más cercana que no pasó el umbral) siga visible para diagnóstico.
+    candidatos = list(exact.candidatos) + list(semantic.candidatos)
 
     ddls = []
     seen = set(exact.tabla)
@@ -826,6 +872,7 @@ def retrieve_ddl_context(
         descripcion=descriptions,
         distance=distances,
         ddl="\n".join(ddls),
+        candidatos=candidatos,
     )
 
 
