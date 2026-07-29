@@ -391,6 +391,37 @@ class ResultTable(BaseModel):
     locale: str
 
 
+class QueryOptimizeFilter(BaseModel):
+    field: str
+    operator: str
+    value: str
+
+
+class QueryOptimizeResponse(BaseModel):
+    original_question: str
+    normalized_question: str
+    intent: str
+    operation: str
+    metrics: list[str]
+    filters: list[QueryOptimizeFilter]
+    date_range: dict[str, str] | None
+    group_by: list[str]
+    context: list[str]
+    suggested_tables: list[str]
+    optimizer: str
+
+
+class ShieldInfo(BaseModel):
+    label: str
+    score: float
+
+
+class RetrievalInfo(BaseModel):
+    distance_threshold: float
+    candidates: list[RetrievalCandidate] = Field(default_factory=list)
+    selected_tables: list[str] = Field(default_factory=list)
+
+
 class AnswerResponse(BaseModel):
     answer: str
     sql: str
@@ -401,6 +432,9 @@ class AnswerResponse(BaseModel):
     attempts: int = 1
     validation: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    shield: ShieldInfo | None = None
+    optimized: QueryOptimizeResponse | None = None
+    retrieval: RetrievalInfo | None = None
 
 
 class _AnswerPayload(BaseModel):
@@ -452,26 +486,6 @@ class MemoryV2SearchResult(BaseModel):
 
 class MemoryV2SearchResponse(BaseModel):
     results: list[MemoryV2SearchResult]
-
-
-class QueryOptimizeFilter(BaseModel):
-    field: str
-    operator: str
-    value: str
-
-
-class QueryOptimizeResponse(BaseModel):
-    original_question: str
-    normalized_question: str
-    intent: str
-    operation: str
-    metrics: list[str]
-    filters: list[QueryOptimizeFilter]
-    date_range: dict[str, str] | None
-    group_by: list[str]
-    context: list[str]
-    suggested_tables: list[str]
-    optimizer: str
 
 
 # ---------------------------------------------------------------------------
@@ -1830,11 +1844,29 @@ async def query_answer(request: QueryRequest):
     """Flujo completo: shield -> optimizer -> retrieval ->
     generate_validated_sql (validar + juzgar, con reintento) ->
     ejecución -> guardrail de resultado -> respuesta.
+
+    Devuelve shield/optimized/retrieval en toda respuesta a partir del
+    punto en que cada etapa ya corrió, para que un único llamado a este
+    endpoint le baste a la UI para pintar todos los pasos del pipeline sin
+    tener que repetir la clasificación de seguridad ni el optimizer por
+    su cuenta (ver `/query/shield` y `/query/optimize`, que siguen
+    existiendo como endpoints independientes pero ya no hace falta
+    llamarlos aparte para esto).
     """
-    label, _score = classify_shield(request.question)
+    label, score = classify_shield(request.question)
+    shield_info = ShieldInfo(label=label, score=score)
+
     if label == "MALICIOUS":
-        raise HTTPException(
-            422, "La pregunta fue bloqueada por el filtro de seguridad."
+        return AnswerResponse(
+            answer=(
+                "Esta consulta fue bloqueada por el filtro de seguridad "
+                "(SQLPromptShield). Reformula tu pregunta."
+            ),
+            sql="",
+            data=[],
+            sources="",
+            status="blocked",
+            shield=shield_info,
         )
 
     if text_collection is None or text_collection._collection.count() == 0:
@@ -1844,6 +1876,7 @@ async def query_answer(request: QueryRequest):
             data=[],
             sources="",
             status="prototype",
+            shield=shield_info,
         )
 
     try:
@@ -1853,6 +1886,8 @@ async def query_answer(request: QueryRequest):
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+    optimized_response = QueryOptimizeResponse(**optimized_query.to_dict())
 
     query_for_generation = optimized_query.normalized_question
     memory_examples = _search_query_memory_v2_examples(
@@ -1868,8 +1903,26 @@ async def query_answer(request: QueryRequest):
         distance_threshold=0.7,
     )
 
+    retrieval_info = RetrievalInfo(
+        distance_threshold=0.7,
+        candidates=resp.candidatos,
+        selected_tables=resp.tabla,
+    )
+
     if resp.ddl == "":
-        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
+        return AnswerResponse(
+            answer=(
+                "No se encontró ninguna tabla relevante para responder "
+                "esta pregunta."
+            ),
+            sql="",
+            data=[],
+            sources="",
+            status="no_context",
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
+        )
 
     rag_response, verdict, attempts = generate_validated_sql(
         query_for_generation,
@@ -1889,6 +1942,9 @@ async def query_answer(request: QueryRequest):
             sources="",
             status=rag_response.status,
             attempts=attempts,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     approved = verdict is not None and verdict.is_valid and verdict.answers_question
@@ -1907,6 +1963,9 @@ async def query_answer(request: QueryRequest):
             attempts=attempts,
             validation="rejected",
             warnings=issues,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     if sql_database is None:
@@ -1924,6 +1983,9 @@ async def query_answer(request: QueryRequest):
             sources=rag_response.sources,
             status="error",
             attempts=attempts,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     rows = execution["rows"]
@@ -1994,6 +2056,9 @@ async def query_answer(request: QueryRequest):
         table=formatted_table,
         attempts=attempts,
         warnings=warnings,
+        shield=shield_info,
+        optimized=optimized_response,
+        retrieval=retrieval_info,
     )
 
 
