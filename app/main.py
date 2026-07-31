@@ -1896,15 +1896,16 @@ async def query_answer(request: QueryRequest):
         distance_threshold=(QUERY_MEMORY_V2_DISTANCE_THRESHOLD),
     )
 
+    retrieval_distance_threshold = 0.7
     resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
         suggested_tables=(optimized_query.suggested_tables),
-        distance_threshold=0.7,
+        distance_threshold=retrieval_distance_threshold,
     )
 
     retrieval_info = RetrievalInfo(
-        distance_threshold=0.7,
+        distance_threshold=retrieval_distance_threshold,
         candidates=resp.candidatos,
         selected_tables=resp.tabla,
     )
