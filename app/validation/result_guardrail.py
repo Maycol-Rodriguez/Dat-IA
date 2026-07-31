@@ -73,8 +73,8 @@ def check_result(
         row_limit: el mismo tope pasado a `execute_sql`; si `len(rows)`
             lo iguala, es señal de que probablemente hay más filas de las
             mostradas (la truncación de `execute_sql` es silenciosa). Usa
-            el mismo `DEFAULT_ROW_LIMIT` que ya acota el SQL en
-            `validate_sql`, para que ambos topes no diverjan.
+            el mismo `DEFAULT_ROW_LIMIT` que `execute_sql` usa para truncar
+            filas en Python, para que ambos topes no diverjan.
 
     Returns:
         `ResultCheck` con `ok=True` solo si no hay ninguna advertencia.

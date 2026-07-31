@@ -355,11 +355,27 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class RetrievalCandidate(BaseModel):
+    """Candidato de recuperación semántica, pase o no el umbral de distancia.
+
+    Existe para diagnóstico: cuando ninguna tabla supera el umbral,
+    `EmbeddingsResponse.tabla`/`.ddl` quedan vacíos y no hay forma de saber
+    qué tan cerca estuvo la más próxima. `candidatos` conserva siempre los
+    resultados crudos (antes de filtrar) para poder mostrarlos.
+    """
+
+    table: str
+    distance: float
+    source: Literal["exact", "semantic"]
+    passed_threshold: bool
+
+
 class EmbeddingsResponse(BaseModel):
     tabla: list[str]
     descripcion: list[str]
     distance: list[float]
     ddl: str
+    candidatos: list[RetrievalCandidate] = Field(default_factory=list)
 
 
 class ResultTableColumn(BaseModel):
@@ -375,6 +391,37 @@ class ResultTable(BaseModel):
     locale: str
 
 
+class QueryOptimizeFilter(BaseModel):
+    field: str
+    operator: str
+    value: str
+
+
+class QueryOptimizeResponse(BaseModel):
+    original_question: str
+    normalized_question: str
+    intent: str
+    operation: str
+    metrics: list[str]
+    filters: list[QueryOptimizeFilter]
+    date_range: dict[str, str] | None
+    group_by: list[str]
+    context: list[str]
+    suggested_tables: list[str]
+    optimizer: str
+
+
+class ShieldInfo(BaseModel):
+    label: str
+    score: float
+
+
+class RetrievalInfo(BaseModel):
+    distance_threshold: float
+    candidates: list[RetrievalCandidate] = Field(default_factory=list)
+    selected_tables: list[str] = Field(default_factory=list)
+
+
 class AnswerResponse(BaseModel):
     answer: str
     sql: str
@@ -385,6 +432,9 @@ class AnswerResponse(BaseModel):
     attempts: int = 1
     validation: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    shield: ShieldInfo | None = None
+    optimized: QueryOptimizeResponse | None = None
+    retrieval: RetrievalInfo | None = None
 
 
 class _AnswerPayload(BaseModel):
@@ -436,26 +486,6 @@ class MemoryV2SearchResult(BaseModel):
 
 class MemoryV2SearchResponse(BaseModel):
     results: list[MemoryV2SearchResult]
-
-
-class QueryOptimizeFilter(BaseModel):
-    field: str
-    operator: str
-    value: str
-
-
-class QueryOptimizeResponse(BaseModel):
-    original_question: str
-    normalized_question: str
-    intent: str
-    operation: str
-    metrics: list[str]
-    filters: list[QueryOptimizeFilter]
-    date_range: dict[str, str] | None
-    group_by: list[str]
-    context: list[str]
-    suggested_tables: list[str]
-    optimizer: str
 
 
 # ---------------------------------------------------------------------------
@@ -603,11 +633,26 @@ def query_embeddings(
         query, k=10
     )  # trae más candidatos
 
+    # Candidatos crudos (antes de filtrar), para diagnóstico: si nada pasa
+    # el umbral más abajo, esta lista es la única forma de ver qué tan
+    # cerca estuvo la tabla más próxima.
+    candidatos = [
+        RetrievalCandidate(
+            table=doc.metadata["nombre"],
+            distance=dist,
+            source="semantic",
+            passed_threshold=dist <= distance_threshold,
+        )
+        for doc, dist in resultados
+    ]
+
     # Filtrar por umbral de distancia
     filtrados = [(doc, dist) for doc, dist in resultados if dist <= distance_threshold]
 
     if not filtrados:
-        return EmbeddingsResponse(tabla=[], descripcion=[], ddl="", distance=[])
+        return EmbeddingsResponse(
+            tabla=[], descripcion=[], ddl="", distance=[], candidatos=candidatos
+        )
 
     listTablas = [doc.metadata["nombre"] for doc, dist in filtrados]
     listDescripciones = [doc.page_content for doc, dist in filtrados]
@@ -621,6 +666,7 @@ def query_embeddings(
         descripcion=listDescripciones,
         ddl=ddls,
         distance=listDistances,
+        candidatos=candidatos,
     )
 
 
@@ -652,6 +698,7 @@ def _get_suggested_table_embeddings(
     descriptions = []
     distances = []
     ddls = []
+    candidatos: list[RetrievalCandidate] = []
     seen = set()
 
     for table_name in suggested_tables or []:
@@ -709,12 +756,21 @@ def _get_suggested_table_embeddings(
             distances.append(0.0)
             ddls.append(ddl)
             seen.add(table)
+            candidatos.append(
+                RetrievalCandidate(
+                    table=table,
+                    distance=0.0,
+                    source="exact",
+                    passed_threshold=True,
+                )
+            )
 
     return EmbeddingsResponse(
         tabla=tables,
         descripcion=descriptions,
         distance=distances,
         ddl="\n".join(ddls),
+        candidatos=candidatos,
     )
 
 
@@ -781,6 +837,10 @@ def retrieve_ddl_context(
     tables = list(exact.tabla)
     descriptions = list(exact.descripcion)
     distances = list(exact.distance)
+    # Candidatos de ambas fuentes, sin deduplicar contra `tables`: el
+    # propósito es justamente que una tabla que no llegó a `tabla`/`ddl`
+    # (la más cercana que no pasó el umbral) siga visible para diagnóstico.
+    candidatos = list(exact.candidatos) + list(semantic.candidatos)
 
     ddls = []
     seen = set(exact.tabla)
@@ -826,6 +886,7 @@ def retrieve_ddl_context(
         descripcion=descriptions,
         distance=distances,
         ddl="\n".join(ddls),
+        candidatos=candidatos,
     )
 
 
@@ -1155,9 +1216,10 @@ def generate_validated_sql(
     sin necesidad de un segundo tipo de dato para "SQL rechazado".
 
     En cuanto `validate_sql` aprueba un intento, `rag_response.sql` se
-    reemplaza por `validation.sql` (el SQL con el `LIMIT` ya acotado): el
-    juez y el llamador ven y ejecutan la misma sentencia que de verdad se
-    corrió contra sqlglot, no el SQL crudo del generador.
+    reemplaza por `validation.sql` (el mismo SQL del generador, solo
+    recortado de espacios y `;` final): el juez y el llamador ven y
+    ejecutan exactamente el mismo string, sin reescritura de sqlglot de
+    por medio.
 
     Args:
         judge_llm: cliente LangChain para `judge_sql` (parámetro explícito,
@@ -1203,9 +1265,9 @@ def generate_validated_sql(
             )
             continue
 
-        # Ejecutar el SQL con el LIMIT acotado por validate_sql, no el
-        # generado en crudo: cierra el hueco por el que el tope de filas
-        # nunca llegaba a execute_sql.
+        # Reemplaza por el SQL recortado por validate_sql (mismo contenido,
+        # sin ";"/espacios extra), para que el juez y el ejecutor vean el
+        # string exacto que se validó.
         rag_response = rag_response.model_copy(update={"sql": validation.sql})
 
         verdict = judge_sql_stage(optimized_query, rag_response.sql, judge_llm)
@@ -1782,11 +1844,29 @@ async def query_answer(request: QueryRequest):
     """Flujo completo: shield -> optimizer -> retrieval ->
     generate_validated_sql (validar + juzgar, con reintento) ->
     ejecución -> guardrail de resultado -> respuesta.
+
+    Devuelve shield/optimized/retrieval en toda respuesta a partir del
+    punto en que cada etapa ya corrió, para que un único llamado a este
+    endpoint le baste a la UI para pintar todos los pasos del pipeline sin
+    tener que repetir la clasificación de seguridad ni el optimizer por
+    su cuenta (ver `/query/shield` y `/query/optimize`, que siguen
+    existiendo como endpoints independientes pero ya no hace falta
+    llamarlos aparte para esto).
     """
-    label, _score = classify_shield(request.question)
+    label, score = classify_shield(request.question)
+    shield_info = ShieldInfo(label=label, score=score)
+
     if label == "MALICIOUS":
-        raise HTTPException(
-            422, "La pregunta fue bloqueada por el filtro de seguridad."
+        return AnswerResponse(
+            answer=(
+                "Esta consulta fue bloqueada por el filtro de seguridad "
+                "(SQLPromptShield). Reformula tu pregunta."
+            ),
+            sql="",
+            data=[],
+            sources="",
+            status="blocked",
+            shield=shield_info,
         )
 
     if text_collection is None or text_collection._collection.count() == 0:
@@ -1796,6 +1876,7 @@ async def query_answer(request: QueryRequest):
             data=[],
             sources="",
             status="prototype",
+            shield=shield_info,
         )
 
     try:
@@ -1806,6 +1887,8 @@ async def query_answer(request: QueryRequest):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
+    optimized_response = QueryOptimizeResponse(**optimized_query.to_dict())
+
     query_for_generation = optimized_query.normalized_question
     memory_examples = _search_query_memory_v2_examples(
         optimized_query,
@@ -1813,15 +1896,34 @@ async def query_answer(request: QueryRequest):
         distance_threshold=(QUERY_MEMORY_V2_DISTANCE_THRESHOLD),
     )
 
+    retrieval_distance_threshold = 0.7
     resp = retrieve_ddl_context(
         text_collection,
         query_for_generation,
         suggested_tables=(optimized_query.suggested_tables),
-        distance_threshold=0.7,
+        distance_threshold=retrieval_distance_threshold,
+    )
+
+    retrieval_info = RetrievalInfo(
+        distance_threshold=retrieval_distance_threshold,
+        candidates=resp.candidatos,
+        selected_tables=resp.tabla,
     )
 
     if resp.ddl == "":
-        raise HTTPException(422, "No se encontró ninguna tabla relevante.")
+        return AnswerResponse(
+            answer=(
+                "No se encontró ninguna tabla relevante para responder "
+                "esta pregunta."
+            ),
+            sql="",
+            data=[],
+            sources="",
+            status="no_context",
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
+        )
 
     rag_response, verdict, attempts = generate_validated_sql(
         query_for_generation,
@@ -1841,6 +1943,9 @@ async def query_answer(request: QueryRequest):
             sources="",
             status=rag_response.status,
             attempts=attempts,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     approved = verdict is not None and verdict.is_valid and verdict.answers_question
@@ -1859,6 +1964,9 @@ async def query_answer(request: QueryRequest):
             attempts=attempts,
             validation="rejected",
             warnings=issues,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     if sql_database is None:
@@ -1876,6 +1984,9 @@ async def query_answer(request: QueryRequest):
             sources=rag_response.sources,
             status="error",
             attempts=attempts,
+            shield=shield_info,
+            optimized=optimized_response,
+            retrieval=retrieval_info,
         )
 
     rows = execution["rows"]
@@ -1946,6 +2057,9 @@ async def query_answer(request: QueryRequest):
         table=formatted_table,
         attempts=attempts,
         warnings=warnings,
+        shield=shield_info,
+        optimized=optimized_response,
+        retrieval=retrieval_info,
     )
 
 

@@ -816,6 +816,32 @@ def test_query_embeddings_returns_empty_when_nothing_passes_threshold() -> None:
     assert result.distance == []
 
 
+def test_query_embeddings_keeps_raw_candidates_for_diagnosis_when_none_pass() -> None:
+    """Aunque ninguna tabla supere el umbral, deben verse los candidatos
+    crudos (con su distancia real) para poder diagnosticar el "casi".
+    """
+    vectorstore = FakeVectorStore(
+        [
+            (
+                Document(
+                    page_content="Tabla no relacionada.",
+                    metadata={"nombre": "otra_tabla", "ddl": "CREATE TABLE otra (...);"},
+                ),
+                0.83,
+            )
+        ]
+    )
+
+    result = query_embeddings(vectorstore, "pregunta fuera de dominio", distance_threshold=0.7)
+
+    assert result.tabla == []
+    assert len(result.candidatos) == 1
+    assert result.candidatos[0].table == "otra_tabla"
+    assert result.candidatos[0].distance == 0.83
+    assert result.candidatos[0].source == "semantic"
+    assert result.candidatos[0].passed_threshold is False
+
+
 def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
     from app import main as main_module
 
@@ -1543,8 +1569,12 @@ def test_query_answer_blocks_malicious_input(monkeypatch) -> None:
         "/query/answer",
         json={"question": "'; DROP TABLE orders; --"},
     )
+    body = response.json()
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert body["status"] == "blocked"
+    assert body["shield"]["label"] == "MALICIOUS"
+    assert body["data"] == []
 
 
 def test_query_answer_full_flow_success(monkeypatch) -> None:
@@ -1597,50 +1627,18 @@ def test_query_answer_full_flow_success(monkeypatch) -> None:
         "locale": "es_PE",
     }
 
-    # Sin ";" final: es el SQL reserializado por validate_sql (sqlglot),
-    # con el LIMIT ya acotado, no el string crudo del generador.
+    # Sin ";" final: validate_sql solo recorta espacios/";" del SQL del
+    # generador (ya trae LIMIT 1 de por sí); no hay reescritura de sqlglot.
     assert body["sql"] == "SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1"
 
-
-def test_query_answer_executes_sql_with_limit_enforced_by_validator(monkeypatch) -> None:
-    """El SQL sin LIMIT del generador no debe llegar tal cual a execute_sql."""
-    from app import main as main_module
-
-    _mock_answer_pipeline(monkeypatch)
-
-    def fake_build_rag_response_without_limit(
-        question, ddl, optimized_query=None, memory_examples=None, feedback=None
-    ):
-        _ = question, ddl, optimized_query, memory_examples, feedback
-        return main_module.RAGResponse(
-            sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC;",
-            sources="carriers",
-            confidence_note="",
-            status="success",
-        )
-
-    executed_sql = {}
-
-    def fake_execute_sql(db, sql, row_limit=200):
-        executed_sql["sql"] = sql
-        return {"rows": [{"carrier_name": "DHL", "on_time_rate": 0.97}]}
-
-    monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response_without_limit)
-    monkeypatch.setattr(main_module, "execute_sql", fake_execute_sql)
-    monkeypatch.setattr(
-        main_module,
-        "synthesize_answer",
-        lambda llm, question, sql, rows: "El transportista con mejor cumplimiento es DHL.",
-    )
-
-    response = client.post(
-        "/query/answer",
-        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
-    )
-
-    assert response.status_code == 200
-    assert "LIMIT 200" in executed_sql["sql"]
-    assert executed_sql["sql"] == response.json()["sql"]
+    # La respuesta consolida shield/optimizer/retrieval: la UI ya no
+    # necesita llamar a /query/shield ni /query/optimize por separado.
+    assert body["shield"] == {"label": "SAFE", "score": 0.99}
+    assert body["optimized"]["intent"] == "ranking"
+    assert body["optimized"]["operation"] == "rank_desc"
+    assert "carriers" in body["optimized"]["suggested_tables"]
+    assert body["retrieval"]["distance_threshold"] == 0.7
+    assert body["retrieval"]["selected_tables"] == ["carriers"]
 
 
 def test_query_answer_warns_when_result_is_truncated(monkeypatch) -> None:
@@ -2060,6 +2058,51 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
     assert response.status_code == 200
     assert body["status"] == "unknown"
     assert body["data"] == []
+
+
+def test_query_answer_returns_no_context_status_when_no_table_found(
+    monkeypatch,
+) -> None:
+    """Cuando ninguna tabla supera el umbral, la respuesta debe seguir
+    siendo 200 con status="no_context" y traer los candidatos de
+    diagnóstico (aunque ninguno haya pasado), en vez de un 422 opaco.
+    """
+    from app import main as main_module
+
+    _mock_answer_pipeline(monkeypatch)
+
+    def fake_query_embeddings(collection, query: str, distance_threshold: float = 0.7):
+        _ = collection, query, distance_threshold
+        return main_module.EmbeddingsResponse(
+            tabla=[],
+            descripcion=[],
+            distance=[],
+            ddl="",
+            candidatos=[
+                main_module.RetrievalCandidate(
+                    table="olist_orders_dataset",
+                    distance=0.83,
+                    source="semantic",
+                    passed_threshold=False,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(main_module, "query_embeddings", fake_query_embeddings)
+
+    response = client.post(
+        "/query/answer",
+        json={"question": "Que empresa de transporte tiene mejor cumplimiento?"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == "no_context"
+    assert body["data"] == []
+    assert body["retrieval"]["selected_tables"] == []
+    assert len(body["retrieval"]["candidates"]) == 1
+    assert body["retrieval"]["candidates"][0]["table"] == "olist_orders_dataset"
+    assert body["retrieval"]["candidates"][0]["distance"] == 0.83
 
 
 def test_find_matching_query_memory_v2_result_normalizes_sql() -> None:

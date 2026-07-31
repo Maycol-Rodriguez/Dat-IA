@@ -2,9 +2,14 @@
 
 Compone capas en orden barato → caro: forma de la sentencia (solo SELECT,
 sin apilar), parsear a un AST, comparar las tablas citadas contra el esquema
-recuperado, acotar el LIMIT, y un dry-run con `EXPLAIN` contra la base de
-datos real (sin leer filas) para validar columnas y tipos. No sustituye al
-juez LLM: solo captura los niveles de error más baratos de detectar.
+recuperado, y un dry-run con `EXPLAIN` contra la base de datos real (sin leer
+filas) para validar columnas y tipos. No sustituye al juez LLM: solo captura
+los niveles de error más baratos de detectar.
+
+No acota el `LIMIT` ni reescribe el SQL de ninguna otra forma: el AST solo se
+usa para verificar, nunca para reserializar. El tope de filas que sí existe
+vive en `execute_sql` (`app/main.py`), que trunca en Python las filas ya
+traídas de Postgres — es un tope de respuesta, no de ejecución en la BD.
 
 Las guardas de solo-SELECT y anti-stacking vivían antes dentro de
 `execute_sql` (`app/main.py`), donde se aplicaban justo antes de ejecutar
@@ -31,8 +36,9 @@ DEFAULT_ROW_LIMIT = 200
 class SqlValidation:
     """Resultado de validar un SQL generado antes de ejecutarlo.
 
-    `sql` trae la sentencia final a ejecutar (con el `LIMIT` ya acotado)
-    cuando `is_valid=True`; queda vacío en cualquier rechazo.
+    `sql` trae el SQL del LLM, recortado únicamente de espacios y `;` final
+    (`.strip().rstrip(";")`), cuando `is_valid=True`; queda vacío en
+    cualquier rechazo. `validate_sql` nunca reescribe ni reserializa el SQL.
     """
 
     is_valid: bool
@@ -58,64 +64,12 @@ def dry_run_explain(db: SQLDatabase, sql: str) -> str | None:
     return result if isinstance(result, str) else None
 
 
-def _read_limit_value(tree: exp.Expression) -> int | None:
-    """Lee el valor numérico del `LIMIT` del AST, si existe y es interpretable."""
-    limit_node = tree.find(exp.Limit)
-
-    if limit_node is None:
-        return None
-
-    try:
-        return int(limit_node.expression.this)
-    except (AttributeError, TypeError, ValueError):
-        return None
-
-
-def _is_single_row_aggregate(tree: exp.Select) -> bool:
-    """Detecta un agregado escalar (sin `GROUP BY`) que siempre devuelve 1 fila.
-
-    Un `SELECT SUM(x) FROM t` sin `GROUP BY` es válido en Postgres solo si
-    todas las columnas proyectadas están agregadas (si alguna no lo
-    estuviera, `EXPLAIN` lo rechazaría más adelante), así que basta con
-    confirmar que no hay `GROUP BY` y que aparece al menos una función de
-    agregación entre las columnas seleccionadas.
-    """
-    if tree.args.get("group"):
-        return False
-
-    return any(select_expr.find(exp.AggFunc) for select_expr in tree.selects)
-
-
-def _enforce_row_limit(tree: exp.Select, max_rows: int) -> exp.Select:
-    """Garantiza que el AST tenga un `LIMIT` <= `max_rows`.
-
-    `tree.limit(n)` reemplaza cualquier `LIMIT` existente en vez de
-    duplicarlo, así que basta con recalcular el valor efectivo y aplicarlo
-    siempre. Un `LIMIT` ausente, no numérico (p. ej. `LIMIT ALL`, que
-    sqlglot descarta silenciosamente) o mayor a `max_rows` se acota a
-    `max_rows`; uno ya menor se conserva.
-
-    No se aplica a un agregado escalar (`_is_single_row_aggregate`): ese
-    SQL siempre devuelve exactamente una fila, así que el `LIMIT` no
-    protege nada y solo introduce ruido que confunde al juez LLM (ver
-    `sql_judge`), que puede leerlo como un truncamiento de datos antes de
-    agregar.
-    """
-    if _is_single_row_aggregate(tree):
-        return tree
-
-    current = _read_limit_value(tree)
-    effective = min(current, max_rows) if current is not None else max_rows
-    return tree.limit(effective)
-
-
 def validate_sql(
     sql: str,
     allowed_tables: list[str],
     db: SQLDatabase | None = None,
-    max_rows: int = DEFAULT_ROW_LIMIT,
 ) -> SqlValidation:
-    """Valida forma, sintaxis, tablas citadas, acota el LIMIT y hace dry-run.
+    """Valida forma, sintaxis y tablas citadas, y hace dry-run.
 
     Args:
         sql: SQL generado por el LLM, aún sin ejecutar.
@@ -124,11 +78,10 @@ def validate_sql(
         db: conexión para el dry-run con `EXPLAIN`. Si es `None` (por
             ejemplo, `DATABASE_URL` no configurada), esa etapa se omite sin
             marcarse como error.
-        max_rows: tope de filas exigido en el `LIMIT` final.
 
     Returns:
-        `SqlValidation` con `is_valid=True`, `stage="ok"` y el SQL final
-        (con `LIMIT` acotado) en `sql`, si pasa todas las etapas aplicables.
+        `SqlValidation` con `is_valid=True`, `stage="ok"` y el SQL original
+        (recortado) en `sql`, si pasa todas las etapas aplicables.
     """
     stripped = sql.strip().rstrip(";")
 
@@ -165,12 +118,9 @@ def validate_sql(
             error=f"Tablas no reconocidas en el esquema recuperado: {sorted(unknown_tables)}",
         )
 
-    tree = _enforce_row_limit(tree, max_rows)
-    bounded_sql = tree.sql(dialect="postgres")
-
     if db is not None:
-        dry_run_error = dry_run_explain(db, bounded_sql)
+        dry_run_error = dry_run_explain(db, stripped)
         if dry_run_error is not None:
             return SqlValidation(is_valid=False, stage="dry_run", error=dry_run_error)
 
-    return SqlValidation(is_valid=True, stage="ok", error="", sql=bounded_sql)
+    return SqlValidation(is_valid=True, stage="ok", error="", sql=stripped)
