@@ -1,54 +1,44 @@
 # Evaluación end-to-end de Dat-IA
 
-Este directorio contiene el flujo manual para evaluar las 30 preguntas del
-golden set contra `POST /query/answer` y publicar los resultados en LangSmith.
-No forma parte del arranque normal de la API ni de `pytest`.
+Este directorio contiene el flujo manual que ejecuta las 30 preguntas del
+golden set contra `POST /query/answer` y publica las métricas en LangSmith. No
+se ejecuta al iniciar FastAPI, durante `pytest` ni al consultar un endpoint de
+la API.
 
-## Qué se versiona
+## Fuente canónica
 
-Existe un único golden set canónico:
+El único golden set operativo es:
 
-[`datasets/dat_ia_golden_v2.jsonl`](datasets/dat_ia_golden_v2.jsonl)
+[`datasets/dat_ia_golden_set_v2.jsonl`](datasets/dat_ia_golden_set_v2.jsonl)
 
-Contiene las 30 preguntas, sus SQL de referencia, tablas esperadas, reglas de
-negocio y todas las filas esperadas. Está codificado en UTF-8 y tiene un objeto
-JSON por línea.
+Características:
 
-Se usa JSONL en lugar de CSV porque cada ejemplo contiene listas, objetos
-anidados y varias filas. JSONL mantiene los tipos numéricos, se puede revisar
-fácilmente en Git y no obliga a serializar JSON dentro de celdas CSV.
+- 30 casos habilitados;
+- formato JSONL y codificación UTF-8;
+- versión lógica `2.1.0`;
+- SQL de referencia de solo lectura;
+- resultados completos validados contra la PostgreSQL oficial;
+- reglas de negocio y tablas esperadas por pregunta.
 
-No existen datasets separados para casos correctos e incorrectos. Los 30 casos
-se sincronizan en LangSmith bajo el nombre:
+JSONL es preferible a CSV porque cada caso contiene listas, metadata, objetos
+anidados y varias filas. Mantiene sus tipos numéricos y permite revisar un caso
+por línea en Git. No se versionan copias `candidates`, `quarantine`,
+`refreshed` ni baselines parciales; Git y los experimentos de LangSmith ya
+conservan el historial.
+
+El dataset remoto estable se llama:
 
 ```text
 dat_ia_test_golden_v2
 ```
 
-El nombre del archivo local y el nombre del dataset remoto son identificadores
-distintos, pero se mantienen alineados con el sufijo `golden_v2` para evitar
-confusión. Los experimentos usan el prefijo `dat_ia_test-golden-v2`.
+El nombre local y el remoto son identificadores distintos. Los UUID de los 30
+ejemplos se derivan de `dataset + case_id`, por lo que sincronizar cambios
+actualiza los casos existentes y no crea duplicados.
 
-LangSmith guarda el dataset, las trazas, las métricas y los experimentos en su
-servicio remoto. No crea archivos locales de resultados. Las antiguas carpetas
-`candidates` y `quarantine` ya no existen y ningún script actual las genera.
+## Contrato de cada caso
 
-## Archivos de auditoría
-
-- `reports/dat_ia_golden_v2_reference_validation.json`: ejecuta los 30 SQL de
-  referencia contra PostgreSQL y muestra, por caso, el resultado esperado, el
-  resultado actual y el error. Sirve para que el equipo de Base de Datos
-  determine si debe corregirse el golden set, la carga de datos o el SQL.
-- `reports/dat_ia_ddl_validation.json`: compara `data/ddl_old.json` con la
-  estructura y los valores categóricos de PostgreSQL. Sirve como evidencia del
-  cambio de DDL dentro del PR.
-
-Estos reportes pueden actualizarse manualmente, pero nunca modifican el golden
-set ni afectan el funcionamiento de Dat-IA.
-
-## Contrato de un caso
-
-Cada línea del JSONL tiene esta forma:
+Cada línea contiene esta estructura:
 
 ```json
 {
@@ -69,11 +59,11 @@ Cada línea del JSONL tiene esta forma:
     }
   },
   "metadata": {
-    "dataset_version": "2.0.0",
+    "dataset_version": "2.1.0",
     "domain": "Órdenes",
     "result_type": "scalar",
     "business_rule": "Contar cada order_id una sola vez.",
-    "quality_status": "candidate_pending_db_validation",
+    "quality_status": "verified_against_official_postgresql",
     "quality_notes": [],
     "omitted_optional_columns": [],
     "source_row": 1
@@ -81,252 +71,262 @@ Cada línea del JSONL tiene esta forma:
 }
 ```
 
-`expected_result.rows` siempre contiene todas las filas conocidas y
-`row_count` debe coincidir con su longitud. No existe `comparison_mode`.
+La comparación de resultados es exacta en cantidad de filas y hechos
+esperados, sin usar `comparison_mode`. El evaluador:
 
-La comparación principal:
-
-- exige la cantidad completa de filas;
-- compara todos los hechos esperados;
-- acepta alias de columnas diferentes;
+- exige que `row_count` coincida;
+- compara todas las filas, sin depender de su orden;
+- acepta alias de columnas porque compara los valores requeridos;
+- permite columnas adicionales en la respuesta;
 - normaliza números, UUID y periodos mensuales;
-- usa `numeric_tolerance`;
-- no depende del orden accidental en que PostgreSQL devuelve las filas.
+- aplica `numeric_tolerance`.
+
+El golden set exige solo lo necesario para responder la pregunta. Las columnas
+retiradas del contrato se registran en `metadata.omitted_optional_columns`.
+Esto aplica a `golden_015`, `golden_022`, `golden_025` y `golden_029`.
 
 ## Independencia de LangSmith
 
-LangSmith es opcional para la API:
+LangSmith es opcional para el flujo normal:
 
-| Escenario | Variables LangSmith | Resultado |
+| Escenario | Configuración | Resultado |
 |---|---|---|
-| Ejecutar únicamente la API | Ninguna | La API funciona y `/ready` muestra `langsmith: not_connected`. |
-| Registrar una sola consulta | `USE_LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` | La consulta y sus etapas aparecen en el proyecto de LangSmith. |
-| Ejecutar el golden set | Las mismas dos variables | El script sincroniza los 30 ejemplos y crea un experimento. |
+| Ejecutar la API | Sin variables LangSmith | La API funciona y `/ready` devuelve `langsmith: not_connected`. |
+| Trazar una pregunta | Bandera y API key | La llamada aparece como una traza normal. |
+| Evaluar el golden set | Bandera, API key y script manual | Se sincronizan 30 ejemplos y se crea un experimento. |
 
-`LANGSMITH_PROJECT` es opcional y usa `dat_ia_test` de forma predeterminada.
-`LANGSMITH_TRACING_SAMPLING_RATE` también es opcional y usa `1.0`.
-
-Los decoradores de observabilidad se deshabilitan cuando falta la bandera o la
-API key. En ese estado no se crea un cliente, no se envían trazas y un fallo de
-configuración de LangSmith no impide arrancar la API.
-
-Las variables se leen al importar la aplicación. Si se activa el tracing
-después de iniciar Uvicorn, hay que reiniciar la API.
-
-## Requisitos para `/query/answer`
-
-La ejecución end-to-end necesita:
-
-- `GOOGLE_API_KEY`;
-- `DATABASE_URL`;
-- API Dat-IA iniciada;
-- LangSmith solamente si se desea guardar la traza o ejecutar el experimento.
-
-Sin `DATABASE_URL`, los endpoints que solo generan SQL pueden seguir
-funcionando, pero `/query/answer` no puede ejecutar la consulta.
-
-## 1. Iniciar la API
-
-Con un `.env`:
-
-```cmd
-uv run --env-file .env uvicorn app.main:app --reload
-```
-
-Comprobar disponibilidad:
-
-```cmd
-curl http://127.0.0.1:8000/ready
-```
-
-Para la evaluación, la respuesta debe contener:
-
-```json
-{
-  "status": "ok",
-  "database": "connected"
-}
-```
-
-## 2. Probar la API sin LangSmith
-
-Dejar estas variables sin definir o desactivadas:
-
-```text
-USE_LANGSMITH_TRACING=false
-LANGSMITH_API_KEY=
-```
-
-Después se puede llamar normalmente a la API:
-
-```cmd
-curl -X POST http://127.0.0.1:8000/query/answer -H "Content-Type: application/json; charset=utf-8" -d "{\"question\":\"¿Cuántas órdenes se registraron en total?\"}"
-```
-
-No se ejecuta ningún script de evaluación y no se crea ninguna traza.
-
-## 3. Registrar una sola respuesta en LangSmith
-
-Configurar antes de iniciar la API:
+Variables mínimas:
 
 ```text
 USE_LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=...
 ```
 
-Reiniciar Uvicorn y llamar una sola vez a `/query/answer`:
+`LANGSMITH_PROJECT` es opcional y usa `dat_ia_test`. La tasa
+`LANGSMITH_TRACING_SAMPLING_RATE` también es opcional y usa `1.0`. Las variables
+se leen al importar la aplicación; hay que reiniciar Uvicorn después de
+cambiarlas.
+
+Si LangSmith está deshabilitado, no se crea el cliente, no se envían trazas y
+la API continúa funcionando. `/ready` comprueba que la bandera y la API key
+existan; no realiza un ping remoto adicional.
+
+## Requisitos de la evaluación
+
+- `GOOGLE_API_KEY` configurada;
+- `DATABASE_URL` conectada a la PostgreSQL oficial;
+- API Dat-IA iniciada;
+- `USE_LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` para publicar;
+- cuota suficiente del proveedor para 30 preguntas.
+
+Cloudflare no elimina la dependencia de Gemini: solo sustituye al generador
+SQL, mientras el optimizer, el juez, la síntesis y los embeddings siguen usando
+Google.
+
+## 1. Iniciar la API
+
+Desde la raíz del repositorio:
 
 ```cmd
-curl -X POST http://127.0.0.1:8000/query/answer -H "Content-Type: application/json; charset=utf-8" -d "{\"question\":\"¿Cuántas órdenes se registraron en total?\"}"
+uv run --env-file .env uvicorn app.main:app --reload
 ```
 
-Esta operación registra una traza normal en el proyecto `dat_ia_test`. No
-sincroniza el golden set ni crea un experimento de 30 preguntas.
+Comprobarla desde otra consola:
 
-## 4. Validar el flujo sin consumir 30 consultas
+```cmd
+curl http://127.0.0.1:8000/ready
+```
 
-Con la API iniciada:
+La evaluación requiere al menos:
+
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "langsmith": "connected"
+}
+```
+
+## 2. Validar sin consumir las 30 preguntas
 
 ```cmd
 uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set --dry-run
 ```
 
-Este comando:
+`--dry-run` realiza únicamente estas comprobaciones:
 
-1. abre y valida el JSONL;
-2. confirma que existen 30 casos habilitados;
-3. verifica `/ready`;
-4. confirma que PostgreSQL está conectado.
+1. abre el JSONL y valida el contrato de cada caso;
+2. confirma que hay 30 casos habilitados y sin IDs duplicados;
+3. consulta `/ready`;
+4. exige `database: connected`.
 
-No ejecuta las 30 preguntas, no llama al modelo para evaluarlas y no sincroniza
-el dataset con LangSmith.
+No llama a `/query/answer`, no consume 30 inferencias, no sincroniza el dataset
+remoto y no crea un experimento.
 
-## 5. Ejecutar las 30 preguntas
+## 3. Ejecutar el golden set completo
 
-Con la API iniciada y LangSmith configurado:
-
-```cmd
-uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set
-```
-
-El comando realiza, en orden:
-
-1. valida el golden set local;
-2. verifica `/ready`;
-3. crea o actualiza `dat_ia_test_golden_v2`;
-4. llama a `/query/answer` una vez por cada pregunta;
-5. ejecuta los evaluadores deterministas;
-6. crea un nuevo experimento con prefijo
-   `dat_ia_test-golden-v2`.
-
-Ejecutarlo varias veces no duplica los ejemplos del dataset porque sus UUID son
-deterministas. Cada repetición sí crea un experimento nuevo, lo cual permite
-comparar estabilidad entre ejecuciones.
-
-Opciones útiles:
+Con la API activa:
 
 ```cmd
 uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set --timeout 180 --max-concurrency 1
 ```
 
-`--max-concurrency 1` es la opción más segura para evitar límites del proveedor
-y facilitar el diagnóstico por pregunta.
+El script:
 
-## Métricas publicadas
+1. valida el archivo canónico;
+2. comprueba `/ready`;
+3. crea o actualiza `dat_ia_test_golden_v2`;
+4. llama una vez a `/query/answer` por pregunta;
+5. ejecuta cinco evaluadores deterministas;
+6. crea un experimento con prefijo `dat_ia_test-golden-v2`.
 
-El experimento registra cinco métricas:
+`--max-concurrency 1` es la opción recomendada para reducir límites de cuota y
+facilitar el diagnóstico. Cada ejecución crea un experimento nuevo, pero no
+duplica los ejemplos del dataset.
 
-- `result_facts_match_expected`: métrica principal. Comprueba que `data`
-  contiene todos los hechos y filas esperados.
-- `answer_contains_expected_facts`: comprueba que la respuesta redactada
-  mencione los hechos esperados. Puede ser más estricta con traducciones de
-  categorías.
-- `reported_source_tables_match_expected`: compara las tablas reportadas por
-  Dat-IA con las tablas esperadas.
-- `response_status_matches_expected`: comprueba que el estado funcional sea el
-  esperado.
-- `generated_sql_is_read_only`: rechaza SQL que no sea de solo lectura.
+### Cuándo usar `--skip-sync`
 
-Una puntuación `0` indica que esa dimensión falló; no significa necesariamente
-que toda la respuesta sea incorrecta. Para diagnosticar un caso hay que revisar
-conjuntamente SQL, `data`, `answer`, `sources` y `status`.
+La ejecución normal sincroniza primero Git con LangSmith. Debe usarse después
+de cualquier cambio en pregunta, SQL, respuesta esperada o metadata.
 
-## Auditar las respuestas de referencia
+`--skip-sync` evalúa directamente la copia que ya existe en LangSmith. Solo es
+seguro cuando se confirmó que el archivo local y el dataset remoto son
+idénticos. Los experimentos históricos nunca se sobrescriben.
 
-Este flujo es independiente del experimento end-to-end:
+El caso `golden_010` fue actualizado después de la última ejecución válida para
+esperar la tasa oficial `0.96`. Por ello, la próxima ejecución debe hacerse sin
+`--skip-sync`.
+
+## Métricas
+
+| Nombre en LangSmith | Qué comprueba |
+|---|---|
+| `result_facts_match_expected` | Filas y hechos esperados en `data`; es la métrica principal. |
+| `answer_contains_expected_facts` | Hechos esperados en la respuesta redactada. |
+| `reported_source_tables_match_expected` | Coincidencia exacta de tablas reportadas. |
+| `response_status_matches_expected` | Estado funcional esperado. |
+| `generated_sql_is_read_only` | SQL limitado a `SELECT` o CTE sin mutaciones. |
+
+Una puntuación `0` en una métrica no explica por sí sola todo el caso. Para el
+diagnóstico deben revisarse conjuntamente `sql`, `data`, `answer`, `sources`,
+`status`, el optimizer y las tablas recuperadas.
+
+El reporte vigente está en
+[../../reports/dat_ia_golden_set_v2_latest.md](../../reports/dat_ia_golden_set_v2_latest.md).
+La última medición válida obtuvo 17/30 en la métrica principal. Una ejecución
+posterior con `0%` se excluyó porque agotó los tokens antes de producir salidas
+evaluables.
+
+## Auditorías locales regenerables
+
+Las auditorías detalladas escriben JSON en `reports/archive/`. Esa carpeta está
+ignorada por Git: permite investigar sin acumular reportes generados en cada
+commit.
+
+Validar los 30 SQL de referencia contra PostgreSQL:
 
 ```cmd
 uv run --env-file .env python -m scripts.validate_golden_set_references
 ```
 
-Ejecuta los 30 SQL de referencia dentro de una transacción de solo lectura y
-actualiza únicamente:
+Salida local:
 
 ```text
-reports/dat_ia_golden_v2_reference_validation.json
+reports/archive/dat_ia_golden_v2_reference_validation.json
 ```
 
-Clasifica cada caso como:
+Clasificaciones posibles:
 
-- `correct`: el SQL se ejecutó y coincide con la respuesta esperada;
-- `golden_set_outdated`: el SQL se ejecutó, pero los datos difieren;
-- `reference_sql_error`: el SQL de referencia no se pudo ejecutar.
+- `correct`: SQL ejecutado y resultado coincidente;
+- `golden_set_outdated`: SQL ejecutado con datos diferentes;
+- `reference_sql_error`: SQL inválido o no ejecutable.
 
-El comando no elimina preguntas, no crea datasets parciales y no sustituye
-automáticamente las respuestas esperadas.
-
-## Auditar el DDL
-
-Esta operación es opcional y está destinada al equipo de Base de Datos:
+Auditar únicamente el DDL anterior:
 
 ```cmd
 uv run --env-file .env python -m scripts.refresh_ddl_from_database --audit-only --ddl-path data/ddl_old.json
 ```
 
-Compara el DDL anterior con PostgreSQL y actualiza:
+Salida local:
 
 ```text
-reports/dat_ia_ddl_validation.json
+reports/archive/dat_ia_ddl_validation.json
 ```
 
-Para refrescar los catálogos documentados en el DDL activo:
+Refrescar un candidato del golden set sin modificar el canónico:
 
 ```cmd
-uv run --env-file .env python -m scripts.refresh_ddl_from_database
+uv run --env-file .env python -m scripts.refresh_golden_set_expected_results
 ```
 
-`data/ddl_old.json` se conserva y nunca se sobrescribe.
+El candidato `dat_ia_golden_set_v2_refreshed.jsonl` está ignorado por Git. Solo
+una revisión explícita del equipo puede promover sus datos al archivo canónico.
 
-## Pruebas locales
+## Limpiar Chroma para una nueva línea base
 
-Las pruebas unitarias no necesitan LangSmith, PostgreSQL ni llamadas al modelo:
+`chroma_db` y `chroma_data` no contienen PostgreSQL: guardan el índice DDL y
+Query Memory. Detener la API antes de borrar la carpeta correspondiente.
+
+Ejecución local:
+
+```powershell
+Remove-Item -LiteralPath .\chroma_db -Recurse -Force
+uv run --env-file .env uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Docker Compose:
+
+```powershell
+docker compose down
+Remove-Item -LiteralPath .\chroma_data -Recurse -Force
+docker compose --env-file .env up --build
+```
+
+No se deben borrar ambas carpetas; se elimina solo la utilizada por el modo de
+ejecución actual. Si `CHROMA_HOST` apunta a un servidor externo, estas órdenes
+no limpian ese servidor.
+
+Después de recrear Chroma, comprobar Query Memory:
+
+```cmd
+curl http://127.0.0.1:8000/memory/v2/stats
+```
+
+Una evaluación completa volverá a poblar la memoria con las consultas que
+lleguen a ejecución exitosa.
+
+## Pruebas de código
 
 ```cmd
 uv run pytest
 uv run ruff check app scripts tests
 ```
 
-El experimento de 30 preguntas es manual porque consume el modelo, consulta la
-base externa y escribe resultados en LangSmith.
+Estas pruebas son locales, deterministas y no consumen LangSmith, PostgreSQL ni
+el modelo. La evaluación de 30 preguntas permanece manual.
 
 ## Problemas comunes
 
 `LangSmith no está configurado`
 
-: El experimento requiere `USE_LANGSMITH_TRACING=true` y
-  `LANGSMITH_API_KEY`. La API normal no los requiere.
+: Definir `USE_LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY`, y reiniciar la
+  API.
 
 `database='not_configured'`
 
-: Falta `DATABASE_URL` o falló la conexión al iniciar la API.
+: Revisar `DATABASE_URL` y reiniciar Uvicorn.
 
-El experimento remoto tiene ejemplos antiguos
+El experimento remoto usa referencias anteriores
 
-: El script se detiene si detecta ejemplos remotos que ya no están en el JSONL.
-  Se debe revisar la diferencia antes de eliminar datos en LangSmith.
+: Ejecutar sin `--skip-sync` para sincronizar el archivo canónico.
 
-Una métrica falla aunque los números parezcan correctos
+La corrida muestra `0%` y hay errores de cuota o tokens
 
-: Revisar si cambió la categoría, la regla temporal, las tablas utilizadas o
-  la cantidad total de filas. La métrica principal ignora alias y orden, pero
-  no ignora hechos faltantes.
+: No usarla como baseline de calidad. Restablecer cuota, comprobar una pregunta
+  individual y volver a ejecutar el experimento completo.
+
+Hay 30 runs completed y 29 runs evaluated
+
+: Revisar el caso sin feedback. Suele indicar que una salida, un evaluador o el
+  proveedor falló antes de publicar todas las métricas; no debe imputarse como
+  una respuesta incorrecta sin inspeccionar la traza.

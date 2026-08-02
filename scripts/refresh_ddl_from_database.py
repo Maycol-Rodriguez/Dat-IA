@@ -18,7 +18,12 @@ from app.db.connect_db import create_db_engine
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DDL_PATH = REPOSITORY_ROOT / "data" / "ddl.json"
 DEFAULT_BACKUP_PATH = REPOSITORY_ROOT / "data" / "ddl_old.json"
-DEFAULT_REPORT_PATH = REPOSITORY_ROOT / "reports" / "dat_ia_ddl_validation.json"
+DEFAULT_REPORT_PATH = (
+    REPOSITORY_ROOT
+    / "reports"
+    / "archive"
+    / "dat_ia_ddl_validation.json"
+)
 
 _COLUMN_PATTERN = re.compile(
     r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)(?:,\s*)?(?:\s+--\s*(.*))?$"
@@ -311,10 +316,6 @@ def _build_corrected_entries(
         for table, entry in legacy_by_table.items()
     }
     corrected = []
-    next_id = max(
-        int(str(entry["id"]).removeprefix("tabla_"))
-        for entry in legacy_entries
-    ) + 1
 
     ordered_tables = [
         entry["nombre"]
@@ -325,18 +326,16 @@ def _build_corrected_entries(
         sorted(set(database_schema) - set(ordered_tables))
     )
 
-    for table in ordered_tables:
+    for table_index, table in enumerate(ordered_tables, start=1):
         legacy = legacy_by_table.get(table)
+        entry_id = f"tabla_{table_index}"
 
         if legacy is None:
-            entry_id = f"tabla_{next_id}"
-            next_id += 1
             description = (
                 f"Tabla {table}. Su estructura fue obtenida directamente "
                 "de la base PostgreSQL."
             )
         else:
-            entry_id = legacy["id"]
             description = legacy["descripcion"].partition(
                 " CATÁLOGOS REALES OBSERVADOS EN LA BASE ACTUAL"
             )[0]

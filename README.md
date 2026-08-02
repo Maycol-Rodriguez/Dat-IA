@@ -1,138 +1,202 @@
-# Dat-IA: Agente Analista de Datos (Text-to-SQL)
+# Dat-IA: agente analista de datos Text-to-SQL
 
-## Descripción del Proyecto
-Las organizaciones generan grandes volúmenes de datos, pero existe una brecha estructural entre los tomadores de decisiones y los equipos técnicos. Para responder preguntas de negocio no rutinarias, se suele depender de analistas de datos, tableros estáticos u hojas de cálculo descentralizadas, lo que genera retrasos operativos y pérdida de confiabilidad.
+Dat-IA convierte preguntas de negocio en lenguaje natural a SQL de solo
+lectura, valida la consulta, la ejecuta sobre PostgreSQL y redacta una respuesta
+trazable. El proyecto combina FastAPI, Gemini, LangChain, ChromaDB, guardrails
+de seguridad y observabilidad opcional con LangSmith.
 
-**Dat-IA** es un agente de analítica de datos basado en Inteligencia Artificial Generativa y prácticas de MLOps. Su objetivo es democratizar el acceso a la información empresarial, permitiendo a los usuarios interactuar con bases de datos relacionales mediante lenguaje natural, sin necesidad de conocer SQL.
+La base PostgreSQL conectada es la fuente oficial de estructura y datos. El
+catálogo operativo contiene 16 tablas del dominio Olist y extensiones de
+negocio para logística, soporte, devoluciones, precios y promociones.
 
-## Objetivos
-* **Negocio:** Reducir el tiempo de respuesta entre la formulación de una pregunta de negocio y la obtención de información confiable, garantizando auditabilidad.
-* **Técnico:** Diseñar, desplegar y evaluar un sistema modular (Agentes IA + RAG) que traduzca consultas en lenguaje natural a SQL, las ejecute de forma segura y devuelva respuestas explicadas al usuario, aplicando monitoreo continuo.
+## Flujo principal
 
-## Arquitectura de la Solución
-La solución se compone de 7 módulos principales:
-1. **Interfaz de Usuario:** Recepción de consultas en lenguaje natural y presentación de resultados y visualizaciones.
-2. **Filtro de Seguridad:** Subagente responsable de identificar y bloquear prompts maliciosos (SQL injection, fugas de confidencialidad).
-3. **Caché Semántico:** Almacenamiento y recuperación de consultas previas mediante búsqueda vectorial para reducir latencia.
-4. **Buscador de Catálogo de Datos (RAG):** Identificación de las tablas relevantes en el catálogo de datos mediante bases vectoriales.
-5. **Inferencia Text-to-SQL:** Core del sistema que traduce la intención del usuario a una consulta SQL ejecutable (basado en modelos como Defog/SQLCoder).
-6. **Ejecución Controlada:** Conexión segura a la base de datos relacional para la extracción de la data requerida.
-7. **Parseo y Evaluación:** Validación de resultados, creación de gráficos automáticos y redacción de la respuesta final explicada.
+`POST /query/answer` ejecuta el proceso completo:
 
-## Stack Tecnológico (Propuesto)
-* **Lenguaje:** Python
-* **Gestión de Entorno:** Docker & Docker Compose
-* **Base de Datos Relacional:** PostgreSQL / MySQL (Dataset: Olist Brazilian E-Commerce)
-* **Base de Datos Vectorial:** Chroma DB
-* **Modelos IA:** 
-* **Observabilidad y MLOps:** LangSmith, Grafana
+1. clasifica la pregunta con SQLPromptShield;
+2. normaliza la intención mediante el optimizer;
+3. recupera tablas relevantes del índice DDL en Chroma;
+4. recupera ejemplos compatibles de Query Memory V2;
+5. genera, valida y juzga SQL de solo lectura;
+6. ejecuta la consulta en PostgreSQL;
+7. valida los resultados y redacta la respuesta final;
+8. registra la traza en LangSmith cuando está habilitado.
 
-## Prototipo API
+La generación SQL usa Gemini de forma predeterminada. Cloudflare Workers AI
+puede sustituir únicamente al generador SQL; el optimizer, el juez y la síntesis
+siguen necesitando `GOOGLE_API_KEY`.
 
-El proyecto incluye una API inicial con FastAPI para validar la base del sistema Dat-IA.
+## Requisitos
 
-### Ejecutar localmente
+- Python 3.11 o 3.12;
+- [uv](https://docs.astral.sh/uv/);
+- acceso a la PostgreSQL oficial mediante `DATABASE_URL`;
+- una clave de Gemini en `GOOGLE_API_KEY`;
+- Docker Desktop, solo si se usará Docker Compose.
+
+Instalar las dependencias:
 
 ```powershell
 uv sync
-uv run uvicorn app.main:app --reload
 ```
 
-Abrir la documentación interactiva:
+## Configuración
 
-```text
-http://127.0.0.1:8000/docs
-```
-
-Probar healthcheck:
+Crear el archivo local de variables a partir de la plantilla:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
+Copy-Item .env.example .env
 ```
 
-Respuesta esperada:
+En CMD:
 
-```json
-{
-  "status": "ok",
-  "service": "dat-ia-api",
-  "version": "0.1.0"
-}
+```cmd
+copy .env.example .env
 ```
 
-### Ejecutar tests
+Variables principales:
+
+| Variable | Requerida | Propósito |
+|---|---|---|
+| `DATABASE_URL` | Para ejecutar respuestas | Conexión de solo lectura a PostgreSQL/Supabase. |
+| `GOOGLE_API_KEY` | Sí | Gemini y embeddings. |
+| `APP_ENV` | No | Etiqueta de ambiente; el valor predeterminado es `test`. |
+| `USE_CLOUDFLARE_LLM` | No | Activa Cloudflare solo para generar SQL. |
+| `CLOUDFLARE_ACCOUNT_ID` | Con Cloudflare | Cuenta de Workers AI. |
+| `CLOUDFLARE_API_KEY` | Con Cloudflare | Credencial de Workers AI. |
+| `USE_LANGSMITH_TRACING` | No | Activa el envío de trazas. |
+| `LANGSMITH_API_KEY` | Con tracing | Credencial de LangSmith. |
+| `LANGSMITH_PROJECT` | No | Proyecto remoto; usa `dat_ia_test` por defecto. |
+| `LANGSMITH_TRACING_SAMPLING_RATE` | No | Proporción entre `0.0` y `1.0`; usa `1.0` por defecto. |
+
+La lista completa y segura para copiar está en `.env.example`. El archivo
+`.env` contiene secretos, está ignorado por Git y no debe enviarse al
+repositorio.
+
+## Ejecutar localmente
+
+Desde la raíz del repositorio:
 
 ```powershell
-uv run pytest
-uv run ruff check app tests
+uv run --env-file .env uvicorn app.main:app --reload
 ```
 
-### Evaluación end-to-end con LangSmith
+Direcciones útiles:
 
-El único golden set se guarda como JSONL UTF-8 en
-`tests/evaluation/datasets/dat_ia_golden_v2.jsonl` y contiene las 30 preguntas.
-La evaluación es manual y no se ejecuta al iniciar la API ni durante `pytest`.
-Para validar el archivo y comprobar que la API está lista, sin ejecutar las 30
-preguntas:
+- API: `http://127.0.0.1:8000/`
+- interfaz web: `http://127.0.0.1:8000/ui/`
+- Swagger: `http://127.0.0.1:8000/docs`
+- disponibilidad: `http://127.0.0.1:8000/ready`
+
+Prueba rápida en CMD:
+
+```cmd
+curl http://127.0.0.1:8000/ready
+```
+
+Para ejecutar una pregunta completa:
+
+```cmd
+curl -X POST http://127.0.0.1:8000/query/answer -H "Content-Type: application/json; charset=utf-8" -d "{\"question\":\"¿Cuál fue el total vendido por mes en 2018?\"}"
+```
+
+`/ready` informa `database: connected` cuando PostgreSQL está disponible y
+`langsmith: connected` cuando la bandera y la API key de LangSmith están
+configuradas. Este último valor comprueba configuración local; no realiza un
+ping adicional al servicio remoto.
+
+## Endpoints
+
+| Método y ruta | Uso |
+|---|---|
+| `GET /` | Modelo, embedding y cantidad de documentos DDL indexados. |
+| `GET /health` | Estado básico del proceso. |
+| `GET /ready` | Disponibilidad de PostgreSQL y configuración de LangSmith. |
+| `POST /query/optimize` | Intención, métricas, filtros, agrupaciones y tablas sugeridas. |
+| `POST /query/json` | Generación de SQL sin ejecutar la consulta. |
+| `POST /query/answer` | Flujo integral con ejecución y respuesta redactada. |
+| `POST /query/shield` | Clasificación aislada de seguridad. |
+| `POST /ingest` | Indexación manual de un catálogo DDL en JSON UTF-8. |
+| `GET /memory/v2/stats` | Estadísticas locales de Query Memory V2. |
+| `POST /memory/v2/search` | Inspección semántica de memorias sin registrar su uso. |
+
+Los esquemas exactos de entrada y salida están disponibles en Swagger.
+
+## Docker Compose
+
+Docker Compose es la forma más sencilla de obtener una ejecución reproducible
+si Docker Desktop ya está instalado. Lee `.env`, construye la imagen, publica
+el puerto 8000 y persiste Chroma en `chroma_data/`:
 
 ```powershell
-uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set --dry-run
+docker compose --env-file .env up --build
 ```
 
-Con la API iniciada, PostgreSQL conectado y las variables
-`USE_LANGSMITH_TRACING=true` y `LANGSMITH_API_KEY` configuradas, una sola
-orden sincroniza el dataset y ejecuta las 30 preguntas:
-
-```powershell
-uv run --env-file .env python -m scripts.evaluate_langsmith_golden_set
-```
-
-La fuente de verdad permanece en Git y LangSmith conserva sus propias
-versiones del dataset y los resultados históricos de cada experimento. Consulta
-[`tests/evaluation/README.md`](tests/evaluation/README.md) para conocer el
-contrato, las métricas, el comportamiento sin LangSmith y el procedimiento
-completo.
-
-### Ejecutar con Docker
-
-```powershell
-docker build -t dat-ia-api:local .
-docker run --rm -p 8000:8000 -e GOOGLE_API_KEY=tu_key_aqui dat-ia-api:local
-```
-
-### Ejecutar con Docker Compose
-No olvidar agregar el GOOGLE_API_KEY en docker-compose.yml
-
-```powershell
-docker compose up --build
-```
-
-Para detener:
+Para detener y eliminar el contenedor:
 
 ```powershell
 docker compose down
 ```
 
-### CI
+La primera construcción puede tardar por las dependencias de PyTorch y el
+modelo de SQLPromptShield. `chroma_data/` es estado local ignorado por Git; la
+base PostgreSQL no se almacena allí.
 
-El repositorio incluye un workflow de GitHub Actions que valida Ruff, Pytest, build de Docker y el endpoint `/health`.
+## Pruebas
 
+Las pruebas unitarias no requieren LangSmith ni ejecutan el golden set:
 
-## Dataset Utilizado
-Se utilizará el dataset público **Olist Brazilian E-Commerce** (aprox. 100,000 órdenes de 2016-2018). Su estructura relacional de 9 tablas (clientes, órdenes, pagos, productos, etc.) simula a la perfección el ciclo de una transacción retail, permitiendo formular preguntas complejas que requieren múltiples uniones (JOINs) y análisis temporales o geográficos.
+```powershell
+uv run pytest
+uv run ruff check app scripts tests
+```
 
-## Equipo de Trabajo
-* **Stefano Ñuflo Paucar** - Ingeniero de Datos
-* **Rommel Paredes Banda** - Ingeniero DevOps
-* **Rolando Maycol Rodriguez Mallqui** - Científico de Datos
-* **Marcelo Sebastian Chavez Cisneros** - Ingeniero MLOps
-* **Yobel Bañes** - Científico de Datos
+La evaluación end-to-end de 30 preguntas es manual porque consume el modelo,
+consulta PostgreSQL y crea un experimento remoto. El procedimiento completo se
+encuentra en [tests/evaluation/README.md](tests/evaluation/README.md).
 
-## Roadmap de Implementación (Gantt)
-* **01/06/2026 - 05/06/2026:** Setup, Arquitectura, Dockerización y definición de esquemas.
-* **04/06/2026 - 19/06/2026:** Creación de BD relacional, catálogo de datos y scripts de conexión.
-* **22/06/2026 - 03/07/2026:** Vectorización, Embeddings y memoria semántica en Chroma DB.
-* **22/06/2026 - 17/07/2026:** Desarrollo de Agentes IA (Filtro de seguridad, optimizador y Text-to-SQL).
-* **15/07/2026 - 04/08/2026:** UI, formato de resultados y agente de visualización.
-* **20/07/2026 - 03/08/2026:** Validación End-to-End e implementación de LangSmith.
-* **04/08/2026 - 09/08/2026:** Pruebas integrales y Entrega Final.
+El único reporte vigente de calidad está en
+[reports/dat_ia_golden_set_v2_latest.md](reports/dat_ia_golden_set_v2_latest.md).
+Una ejecución con `0%` provocada por falta de cuota o tokens no debe usarse como
+medición funcional.
+
+## Datos y persistencia local
+
+- `data/ddl.json`: catálogo activo de 16 tablas.
+- `data/ddl_old.json`: snapshot anterior conservado para trazabilidad.
+- `chroma_db/`: DDL vectorizado y Query Memory en ejecución local.
+- `chroma_data/`: la misma persistencia cuando se usa Docker Compose.
+
+Chroma no contiene las filas de negocio de PostgreSQL. Ambas carpetas locales
+están ignoradas por Git y se recrean a partir del DDL cuando corresponde. Los
+detalles del catálogo están en [data/README.md](data/README.md).
+
+## Estructura relevante
+
+```text
+app/
+  evaluation/       Contrato y evaluadores del golden set
+  formatting/       Tabla y etiquetas de resultados
+  memory/           Query Memory V2
+  observability/    Integración opcional con LangSmith
+  optimizer/        Normalización de preguntas
+  validation/       Validador, juez y guardrails
+data/                DDL activo y snapshot anterior
+scripts/             Evaluación y auditorías manuales
+tests/evaluation/    Golden set canónico y documentación
+reports/             Evidencia de calidad vigente y benchmarks estables
+```
+
+## CI
+
+GitHub Actions valida Ruff, Pytest, la construcción de Docker y el endpoint
+`/health`. La evaluación LangSmith no forma parte de CI para evitar consumo no
+controlado de cuota y dependencia de servicios externos.
+
+## Equipo
+
+- Stefano Ñuflo Paucar — Ingeniero de Datos
+- Rommel Paredes Banda — Ingeniero DevOps
+- Rolando Maycol Rodriguez Mallqui — Científico de Datos
+- Marcelo Sebastian Chavez Cisneros — Ingeniero MLOps
+- Yobel Bañes — Científico de Datos

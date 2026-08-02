@@ -1,6 +1,7 @@
 import pytest
 
 from app.optimizer.query_optimizer import (
+    _build_optimizer_prompt,
     _optimized_query_from_payload,
     optimize_query,
     optimize_query_rule_based,
@@ -39,6 +40,38 @@ class BrokenOptimizerLlm:
     def invoke(self, prompt: str):
         _ = prompt
         raise RuntimeError("LLM no disponible")
+
+
+def test_optimizer_prompt_lists_the_sixteen_official_tables() -> None:
+    prompt = _build_optimizer_prompt("Pregunta de prueba")
+    catalog_text = prompt.split(
+        "Use these table names when applicable:",
+        maxsplit=1,
+    )[1].split("Important rules:", maxsplit=1)[0]
+    catalog = {
+        table.strip().removesuffix(".")
+        for table in catalog_text.replace("\n", " ").split(",")
+        if table.strip()
+    }
+
+    assert catalog == {
+        "carriers",
+        "customer_support_tickets",
+        "delivery_incidents",
+        "olist_customers_dataset",
+        "olist_geolocation_dataset",
+        "olist_order_items_dataset",
+        "olist_order_payments_dataset",
+        "olist_order_reviews_dataset",
+        "olist_orders_dataset",
+        "olist_products_dataset",
+        "olist_sellers_dataset",
+        "product_category_name_translation",
+        "product_price_history",
+        "product_returns",
+        "seller_promotions",
+        "warehouse_inventory",
+    }
 
 
 def test_rule_based_optimizer_detects_carrier_ranking_query() -> None:

@@ -14,13 +14,13 @@ from typing import Any
 from langsmith import Client
 
 GOLDEN_SET_DATASET_NAME = "dat_ia_test_golden_v2"
-GOLDEN_SET_VERSION = "2.0.0"
+GOLDEN_SET_VERSION = "2.1.0"
 DEFAULT_GOLDEN_SET_PATH = (
     Path(__file__).resolve().parents[2]
     / "tests"
     / "evaluation"
     / "datasets"
-    / "dat_ia_golden_v2.jsonl"
+    / "dat_ia_golden_set_v2.jsonl"
 )
 
 _EXAMPLE_ID_NAMESPACE = uuid.UUID("dc75eef4-3d98-43f2-b494-13b25a87ba11")
@@ -115,7 +115,7 @@ def sync_golden_set(
             description=(
                 "Golden set end-to-end de Dat-IA. "
                 "Fuente canónica: tests/evaluation/datasets/"
-                "dat_ia_golden_v2.jsonl."
+                "dat_ia_golden_set_v2.jsonl."
             ),
             metadata={
                 "solution": "dat_ia_test",

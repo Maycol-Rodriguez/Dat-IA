@@ -15,7 +15,11 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db.connect_db import create_db_engine
-from app.evaluation import compare_result_facts, is_read_only_sql
+from app.evaluation import (
+    compare_result_facts,
+    golden_set_content_hash,
+    is_read_only_sql,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_PATH = (
@@ -23,11 +27,12 @@ DEFAULT_DATASET_PATH = (
     / "tests"
     / "evaluation"
     / "datasets"
-    / "dat_ia_golden_v2.jsonl"
+    / "dat_ia_golden_set_v2.jsonl"
 )
 DEFAULT_REPORT_PATH = (
     REPOSITORY_ROOT
     / "reports"
+    / "archive"
     / "dat_ia_golden_v2_reference_validation.json"
 )
 
@@ -77,9 +82,11 @@ def validate_references(
         )
     }
     report = {
-        "dataset_version": "2.0.0",
+        "dataset_version": cases[0]["metadata"]["dataset_version"],
+        "dataset_content_sha256": golden_set_content_hash(cases),
+        "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "validation_scope": f"{len(cases)} reference SQL queries",
-        "dataset_path": str(dataset_path.relative_to(REPOSITORY_ROOT)),
+        "dataset_path": _path_for_report(dataset_path),
         "database_dialect": engine.dialect.name,
         "counts": counts,
         "correct_case_ids": [
@@ -97,6 +104,16 @@ def validate_references(
 
     _write_json(report_path, report)
     return report
+
+
+def _path_for_report(path: Path) -> str:
+    """Usa una ruta relativa al repo cuando sea posible, o absoluta si no."""
+    resolved_path = path.resolve()
+
+    try:
+        return str(resolved_path.relative_to(REPOSITORY_ROOT))
+    except ValueError:
+        return str(resolved_path)
 
 
 def _validate_case(connection: Any, case: Mapping[str, Any]) -> dict[str, Any]:

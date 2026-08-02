@@ -244,10 +244,11 @@ were sold, without a monetary word, is "order_count" or no metric at all
 
 Use these table names when applicable:
 olist_orders_dataset, olist_order_items_dataset, olist_customers_dataset,
-olist_products_dataset, olist_order_reviews_dataset, carriers,
-warehouse_inventory, product_returns, delivery_incidents,
-customer_support_tickets, product_price_history,
-product_category_name_translation.
+olist_products_dataset, olist_order_reviews_dataset,
+olist_geolocation_dataset, olist_order_payments_dataset,
+olist_sellers_dataset, carriers, warehouse_inventory, product_returns,
+delivery_incidents, customer_support_tickets, product_price_history,
+product_category_name_translation, seller_promotions.
 
 Important rules:
 - Add a filter only when the user states an explicit business constraint.

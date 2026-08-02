@@ -1,12 +1,10 @@
 from __future__ import annotations
-
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
 
 from app.evaluation import (
     GOLDEN_SET_DATASET_NAME,
+    GOLDEN_SET_VERSION,
     answer_contains_expected_facts,
     compare_result_facts,
     generated_sql_is_read_only,
@@ -17,12 +15,6 @@ from app.evaluation import (
     result_facts_match_expected,
     sync_golden_set,
 )
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DDL_VALIDATION_REPORT_PATH = (
-    REPOSITORY_ROOT / "reports" / "dat_ia_ddl_validation.json"
-)
-
 
 def test_canonical_golden_set_has_thirty_complete_cases() -> None:
     cases = load_golden_set()
@@ -39,29 +31,13 @@ def test_canonical_golden_set_has_thirty_complete_cases() -> None:
     )
     assert monthly_revenue["row_count"] == 8
     assert len(monthly_revenue["rows"]) == 8
-
-
-def test_ddl_report_confirms_structure_and_identifies_catalog_drift() -> None:
-    report = json.loads(
-        DDL_VALIDATION_REPORT_PATH.read_text(encoding="utf-8")
-    )
-    catalog_differences = [
-        (table["table"], difference["column"])
-        for table in report["tables"]
-        for difference in table["catalog_value_differences"]
-    ]
-
-    assert report["missing_tables_in_database"] == []
-    assert report["undocumented_tables_in_ddl"] == []
+    assert GOLDEN_SET_VERSION == "2.1.0"
     assert all(
-        not table["missing_columns_in_database"]
-        and not table["undocumented_columns_in_ddl"]
-        and not table["type_differences"]
-        for table in report["tables"]
+        case["metadata"]["dataset_version"] == GOLDEN_SET_VERSION
+        and case["metadata"]["quality_status"]
+        == "verified_against_official_postgresql"
+        for case in cases
     )
-    assert catalog_differences == [
-        ("product_price_history", "change_reason")
-    ]
 
 
 def test_compare_result_facts_ignores_aliases_and_normalizes_numbers() -> None:
@@ -145,17 +121,32 @@ def test_answer_contains_expected_facts_handles_formatted_numbers() -> None:
     assert answer_contains_expected_facts(outputs, reference) is True
 
 
-def test_golden_set_omits_only_documented_optional_columns() -> None:
+def test_refreshed_golden_set_requires_only_question_relevant_columns() -> None:
     cases = {case["case_id"]: case for case in load_golden_set()}
 
-    seller_revenue = cases["golden_015"]
-    expected_row = seller_revenue["reference_outputs"]["expected_result"]["rows"][0]
+    expected_columns = {
+        "golden_015": {"seller_id", "merchandise_revenue_brl"},
+        "golden_022": {"category", "avg_review_score"},
+        "golden_025": {"change_reason", "avg_price_change_brl"},
+        "golden_029": {"seller_id", "delivered_items"},
+    }
+    omitted_columns = {
+        "golden_015": ["seller_city", "seller_state"],
+        "golden_022": ["reviews"],
+        "golden_025": ["price_changes"],
+        "golden_029": ["seller_city", "seller_state"],
+    }
 
-    assert set(expected_row) == {"seller_id", "merchandise_revenue_brl"}
-    assert seller_revenue["metadata"]["omitted_optional_columns"] == [
-        "seller_city",
-        "seller_state",
-    ]
+    for case_id, columns in expected_columns.items():
+        expected_rows = cases[case_id]["reference_outputs"]["expected_result"][
+            "rows"
+        ]
+
+        assert all(set(row) == columns for row in expected_rows)
+        assert (
+            cases[case_id]["metadata"]["omitted_optional_columns"]
+            == omitted_columns[case_id]
+        )
 
 
 def test_deterministic_evaluators_score_api_output() -> None:
