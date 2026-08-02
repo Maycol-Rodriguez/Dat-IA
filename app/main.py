@@ -1382,17 +1382,34 @@ def synthesize_answer(
     strict_instruction = ""
     if strict_numbers:
         strict_instruction = """
-    Tu respuesta anterior incluyó números que no coinciden exactamente
-    con el resultado. Copia los valores numéricos tal cual aparecen en
-    el resultado, sin redondear ni calcular cifras nuevas.
+    Tu respuesta anterior incluyó cifras que no pudieron respaldarse con
+    el resultado. Usa exclusivamente cifras presentes en las filas y no
+    calcules totales ni métricas nuevas. Puedes expresar una tasa almacenada
+    como proporción en formato porcentual equivalente (por ejemplo, 0.960
+    como 96,0 %).
     """
 
     prompt = f"""
-    Eres un analista de datos. Responde la pregunta del usuario en español,
-    de forma clara y concisa, usando exclusivamente el resultado de la
-    consulta SQL de abajo. Menciona el número de filas si es relevante.
-    No inventes datos que no estén en el resultado.
-    {strict_instruction}
+    Eres un analista de datos que comunica resultados a stakeholders.
+    Responde siempre en español, con claridad, precisión y lenguaje ejecutivo.
+
+    Reglas obligatorias:
+    - Usa exclusivamente la información contenida en las filas del resultado.
+    - No inventes totales, conteos, porcentajes, comparaciones ni conclusiones.
+    - No afirmes que existen N registros si ese valor no aparece explícitamente
+      en las filas del resultado.
+    - Si el resultado es un ranking, presenta una conclusión breve y luego
+      una lista con viñetas, conservando el orden entregado por la consulta.
+    - No uses numeración de lista si puede confundirse con una cifra del
+      resultado.
+    - Las columnas cuyo nombre indique una tasa, proporción, ratio, porcentaje
+      o contenga "rate", "ratio", "pct", "percentage" o "tasa" pueden
+      expresarse como porcentaje. Por ejemplo: 0.960 → 96,0 %.
+    - No redondees una cifra de forma que cambie su significado y no calcules
+      cifras nuevas.
+    - No menciones el SQL, las tablas ni el proceso interno.
+    - Si no hay filas, indica que no se encontraron resultados.
+
     Pregunta: {question}
     SQL ejecutado: {sql}
     Resultado ({len(rows)} filas): {rows}
