@@ -129,6 +129,26 @@ def test_check_groundedness_accepts_decimal_values_from_postgres() -> None:
     assert result.unsupported_numbers == []
 
 
+def test_check_groundedness_accepts_percentage_equivalent_of_ratio() -> None:
+    rows = [{"carrier_name": "DHL", "on_time_rate": Decimal("0.960")}]
+    answer = "La tasa de cumplimiento de DHL fue 96,0 %."
+
+    result = check_groundedness(answer, rows)
+
+    assert result.ok is True
+    assert result.unsupported_numbers == []
+
+
+def test_check_groundedness_rejects_unrelated_percentage() -> None:
+    rows = [{"carrier_name": "DHL", "on_time_rate": Decimal("0.960")}]
+    answer = "La tasa de cumplimiento de DHL fue 87,6 %."
+
+    result = check_groundedness(answer, rows)
+
+    assert result.ok is False
+    assert result.unsupported_numbers == ["87,6 %"]
+
+
 def test_check_groundedness_respects_rounding_tolerance() -> None:
     rows = [{"carrier_name": "DHL", "on_time_rate": 0.9701}]
     answer = "La tasa de cumplimiento es 0.97."

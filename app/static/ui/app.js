@@ -253,6 +253,41 @@ function pill(text, variant) {
   return `<span class="pill ${variant || ""}">${escapeHtml(text)}</span>`;
 }
 
+// Convierte líneas que empiezan con "- " en viñetas HTML reales (<ul><li>)
+// y el resto del texto en párrafos. No intenta partir líneas sin saltos de
+// línea reales: eso depende de que el prompt del backend los genere.
+function renderAnswerText(container, text) {
+  container.innerHTML = "";
+  if (!text) return;
+
+  const lines = text.split("\n");
+  let list = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      list = null;
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      if (!list) {
+        list = document.createElement("ul");
+        list.className = "answer-list";
+        container.appendChild(list);
+      }
+      const li = document.createElement("li");
+      li.innerHTML = escapeHtml(line.slice(2));
+      list.appendChild(li);
+    } else {
+      list = null;
+      const p = document.createElement("p");
+      p.innerHTML = escapeHtml(line);
+      container.appendChild(p);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Paso 1 — Filtro de seguridad
 // Paso 2 — Optimizador de consulta
@@ -327,6 +362,61 @@ function renderOptimizerStep(d) {
   return step;
 }
 
+// Une, por tabla, la fila de coincidencia exacta y la de distancia semántica
+// (el backend las manda como candidatos separados aunque sean la misma
+// tabla) para poder mostrar ambas estrategias en una sola fila.
+function mergeRetrievalCandidates(candidates) {
+  const order = [];
+  const byTable = new Map();
+
+  for (const c of candidates || []) {
+    if (!byTable.has(c.table)) {
+      byTable.set(c.table, { table: c.table, exact: null, semantic: null });
+      order.push(c.table);
+    }
+    const entry = byTable.get(c.table);
+    if (c.source === "exact") entry.exact = c;
+    else entry.semantic = c;
+  }
+
+  return order.map((table) => byTable.get(table));
+}
+
+// Exactas primero (en su orden original), luego el resto por distancia
+// semántica ascendente; las tablas sin candidato semántico quedan al final.
+function sortRetrievalRows(rows) {
+  return [...rows].sort((a, b) => {
+    const aExact = a.exact ? 0 : 1;
+    const bExact = b.exact ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
+    const aDist = a.semantic ? a.semantic.distance : Infinity;
+    const bDist = b.semantic ? b.semantic.distance : Infinity;
+    return aDist - bDist;
+  });
+}
+
+// Decisión = unión de ambas estrategias: coincidencia exacta selecciona
+// siempre; la semántica solo si pasa el umbral que ya calculó el backend
+// (candidate.passed_threshold), sin recalcularlo en la UI.
+function decideRetrievalRow(row) {
+  const isExact = !!row.exact;
+  const hasSemanticCandidate = !!row.semantic;
+  const semanticPasses = hasSemanticCandidate && row.semantic.passed_threshold;
+
+  let decision;
+  if (isExact && (!hasSemanticCandidate || semanticPasses)) {
+    decision = { text: "Seleccionada", variant: "success" };
+  } else if (isExact) {
+    decision = { text: "Seleccionada por exacta", variant: "success" };
+  } else if (semanticPasses) {
+    decision = { text: "Seleccionada por semántica", variant: "success" };
+  } else {
+    decision = { text: "Descartada", variant: "faint" };
+  }
+
+  return { isExact, hasSemanticCandidate, semanticPasses, decision };
+}
+
 function renderRetrievalStep(d) {
   const step = addStep("retrieval", "Recuperación de esquema (RAG)");
   const retrieval = d.retrieval;
@@ -346,17 +436,27 @@ function renderRetrievalStep(d) {
     noneSelected ? "0 tablas superaron el umbral" : `${selected.length} tabla(s) seleccionada(s)`
   );
 
-  const sorted = [...(retrieval.candidates || [])].sort((a, b) => a.distance - b.distance);
-  const rows = sorted
-    .map(
-      (c) => `
+  const mergedRows = sortRetrievalRows(mergeRetrievalCandidates(retrieval.candidates));
+  const rows = mergedRows
+    .map((row) => {
+      const { isExact, hasSemanticCandidate, semanticPasses, decision } = decideRetrievalRow(row);
+      const distanceText = hasSemanticCandidate ? row.semantic.distance.toFixed(4) : "—";
+      const resultText = !hasSemanticCandidate
+        ? "No evaluada en top-k"
+        : semanticPasses
+          ? "Pasa"
+          : "No pasa";
+      const resultVariant = !hasSemanticCandidate ? "faint" : semanticPasses ? "success" : "danger";
+
+      return `
       <tr>
-        <td>${escapeHtml(c.table)}</td>
-        <td class="numeric">${c.distance.toFixed(4)}</td>
-        <td>${escapeHtml(c.source)}</td>
-        <td>${c.passed_threshold ? pill("sí", "success") : pill("no", "danger")}</td>
-      </tr>`
-    )
+        <td>${escapeHtml(row.table)}</td>
+        <td>${isExact ? "Sí" : "No"}</td>
+        <td>${hasSemanticCandidate ? pill(distanceText, semanticPasses ? "success" : "danger") : "—"}</td>
+        <td class="cell-${resultVariant}">${resultText}</td>
+        <td class="cell-${decision.variant}">${decision.text}</td>
+      </tr>`;
+    })
     .join("");
 
   step.querySelector(".step-body").innerHTML = `
@@ -367,9 +467,15 @@ function renderRetrievalStep(d) {
     <div class="result-table-wrap">
       <table class="result-table">
         <thead>
-          <tr><th>Tabla</th><th class="numeric">Distancia</th><th>Origen</th><th>¿Pasó umbral?</th></tr>
+          <tr>
+            <th>Tabla</th>
+            <th>Coincidencia exacta</th>
+            <th>Distancia semántica</th>
+            <th>Resultado semántico</th>
+            <th>Decisión</th>
+          </tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="4">Sin candidatos.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="5">Sin candidatos.</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -538,7 +644,7 @@ async function handleQuestion(question) {
     summaryText.textContent = "Pipeline completado";
   }
 
-  answerTextEl.textContent = answerResult.answer || "No se recibió respuesta.";
+  renderAnswerText(answerTextEl, answerResult.answer || "No se recibió respuesta.");
 }
 
 // ---------------------------------------------------------------------------

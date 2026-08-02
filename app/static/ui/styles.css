@@ -297,7 +297,7 @@ kbd {
 
 .result-panel {
   width: 100%;
-  max-width: 620px;
+  max-width: 1000px;
   margin-top: 40px;
 }
 
@@ -334,7 +334,6 @@ kbd {
 }
 
 .answer-text {
-  white-space: pre-wrap;
   padding: 14px 2px 4px;
   font-size: 0.9375rem;
   line-height: 1.6;
@@ -342,6 +341,27 @@ kbd {
 
 .answer-text:empty {
   display: none;
+}
+
+.answer-text p {
+  margin: 0 0 8px;
+}
+
+.answer-text p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-list {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.answer-list li {
+  margin: 3px 0;
+}
+
+.answer-list:last-child {
+  margin-bottom: 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -553,6 +573,11 @@ kbd {
 .result-table td.numeric, .result-table th.numeric {
   text-align: right;
 }
+
+.result-table td.cell-success { color: var(--success); }
+.result-table td.cell-danger { color: var(--danger); }
+.result-table td.cell-warning { color: var(--warning); }
+.result-table td.cell-faint { color: var(--text-faint); }
 
 .result-table tbody tr:last-child td {
   border-bottom: none;

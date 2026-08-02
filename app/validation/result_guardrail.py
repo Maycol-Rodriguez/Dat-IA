@@ -23,6 +23,17 @@ from app.optimizer.query_optimizer import OptimizedQuery
 from app.validation.sql_validator import DEFAULT_ROW_LIMIT
 
 
+_PERCENTAGE_HINTS = {
+    "pct",
+    "percent",
+    "percentage",
+    "porcentaje",
+    "rate",
+    "ratio",
+    "tasa",
+}
+
+
 @dataclass(frozen=True)
 class ResultCheck:
     """Señales de alerta detectadas mirando solo las filas, sin LLM."""
@@ -37,6 +48,50 @@ class GroundednessCheck:
 
     ok: bool
     unsupported_numbers: list[str]
+
+
+def _looks_like_percentage_key(key: str) -> bool:
+    """Indica si el nombre de una columna representa una tasa o porcentaje."""
+    tokens = re.findall(r"[a-zA-ZáéíóúñÁÉÍÓÚÑ]+", key.casefold())
+    return bool(set(tokens) & _PERCENTAGE_HINTS)
+
+
+def _parse_answer_number(raw: str) -> float:
+    """Convierte números con separador decimal español o anglosajón."""
+    normalized = raw.strip()
+
+    if "," in normalized and "." in normalized:
+        if normalized.rfind(",") > normalized.rfind("."):
+            normalized = normalized.replace(".", "").replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+    elif "," in normalized:
+        decimal_part = normalized.rsplit(",", 1)[1]
+        if normalized.startswith("0,") or len(decimal_part) <= 2:
+            normalized = normalized.replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+
+    return float(normalized)
+
+
+def _numeric_values(rows: list[dict]) -> tuple[set[float], set[float]]:
+    """Obtiene valores crudos y equivalentes porcentuales de las filas."""
+    raw_values: set[float] = set()
+    percentage_values: set[float] = set()
+
+    for row in rows:
+        for key, value in row.items():
+            if not isinstance(value, (int, float, Decimal)):
+                continue
+
+            numeric_value = float(value)
+            raw_values.add(numeric_value)
+
+            if _looks_like_percentage_key(str(key)) and abs(numeric_value) <= 1:
+                percentage_values.add(numeric_value * 100)
+
+    return raw_values, percentage_values
 
 
 def _find_metric_column(metric: str, row: dict) -> str | None:
@@ -129,22 +184,20 @@ def check_groundedness(
         `GroundednessCheck` con los números del texto que no encontraron
         respaldo en `rows`.
     """
-    numbers_in_answer = re.findall(r"\d+[.,]?\d*", answer)
-    row_values = {
-        round(float(value), 2)
-        for row in rows
-        for value in row.values()
-        # Decimal es lo que devuelven las columnas NUMERIC de Postgres via
-        # psycopg2/SQLAlchemy para execute_sql, no un float nativo.
-        if isinstance(value, (int, float, Decimal))
-    }
+    number_pattern = re.compile(r"(?P<number>\d+(?:[.,]\d+)?)(?P<percent>\s*%)?")
+    numbers_in_answer = list(number_pattern.finditer(answer))
+    row_values, percentage_values = _numeric_values(rows)
 
     unsupported = []
-    for raw in numbers_in_answer:
-        candidate = float(raw.replace(",", ""))
+    for match in numbers_in_answer:
+        raw = match.group("number")
+        candidate = _parse_answer_number(raw)
+        candidate_values = percentage_values if match.group("percent") else row_values
+
         if not any(
-            abs(candidate - v) <= tolerance * max(abs(v), 1) for v in row_values
+            abs(candidate - value) <= tolerance * max(abs(value), 1)
+            for value in candidate_values
         ):
-            unsupported.append(raw)
+            unsupported.append(raw + (" %" if match.group("percent") else ""))
 
     return GroundednessCheck(ok=not unsupported, unsupported_numbers=unsupported)
