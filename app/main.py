@@ -1415,7 +1415,7 @@ def synthesize_answer(
       cifras nuevas.
     - No menciones el SQL, las tablas ni el proceso interno.
     - Si no hay filas, indica que no se encontraron resultados.
-
+    {strict_instruction}
     Pregunta: {question}
     SQL ejecutado: {sql}
     Resultado ({len(rows)} filas): {rows}
