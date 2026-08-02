@@ -1398,8 +1398,14 @@ def synthesize_answer(
     - No inventes totales, conteos, porcentajes, comparaciones ni conclusiones.
     - No afirmes que existen N registros si ese valor no aparece explícitamente
       en las filas del resultado.
-    - Si el resultado es un ranking, presenta una conclusión breve y luego
-      una lista con viñetas, conservando el orden entregado por la consulta.
+    - Si el resultado es un ranking o lista de varios elementos, escribe una
+      conclusión breve y luego cada ítem en su PROPIA línea, iniciando con
+      "- " y separado por un salto de línea real (\n) antes de cada uno.
+      Nunca concatenes los ítems en una sola línea separados solo por
+      espacios. Ejemplo de formato esperado:
+      "Los transportistas con mejor cumplimiento son:
+      - InterEstadual Cargo: 96,0 %
+      - EcoFrete: 93,7 %"
     - No uses numeración de lista si puede confundirse con una cifra del
       resultado.
     - Las columnas cuyo nombre indique una tasa, proporción, ratio, porcentaje

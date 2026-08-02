@@ -253,6 +253,41 @@ function pill(text, variant) {
   return `<span class="pill ${variant || ""}">${escapeHtml(text)}</span>`;
 }
 
+// Convierte líneas que empiezan con "- " en viñetas HTML reales (<ul><li>)
+// y el resto del texto en párrafos. No intenta partir líneas sin saltos de
+// línea reales: eso depende de que el prompt del backend los genere.
+function renderAnswerText(container, text) {
+  container.innerHTML = "";
+  if (!text) return;
+
+  const lines = text.split("\n");
+  let list = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      list = null;
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      if (!list) {
+        list = document.createElement("ul");
+        list.className = "answer-list";
+        container.appendChild(list);
+      }
+      const li = document.createElement("li");
+      li.innerHTML = escapeHtml(line.slice(2));
+      list.appendChild(li);
+    } else {
+      list = null;
+      const p = document.createElement("p");
+      p.innerHTML = escapeHtml(line);
+      container.appendChild(p);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Paso 1 — Filtro de seguridad
 // Paso 2 — Optimizador de consulta
@@ -609,7 +644,7 @@ async function handleQuestion(question) {
     summaryText.textContent = "Pipeline completado";
   }
 
-  answerTextEl.textContent = answerResult.answer || "No se recibió respuesta.";
+  renderAnswerText(answerTextEl, answerResult.answer || "No se recibió respuesta.");
 }
 
 // ---------------------------------------------------------------------------

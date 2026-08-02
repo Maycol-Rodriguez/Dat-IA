@@ -334,7 +334,6 @@ kbd {
 }
 
 .answer-text {
-  white-space: pre-wrap;
   padding: 14px 2px 4px;
   font-size: 0.9375rem;
   line-height: 1.6;
@@ -342,6 +341,27 @@ kbd {
 
 .answer-text:empty {
   display: none;
+}
+
+.answer-text p {
+  margin: 0 0 8px;
+}
+
+.answer-text p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-list {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.answer-list li {
+  margin: 3px 0;
+}
+
+.answer-list:last-child {
+  margin-bottom: 0;
 }
 
 /* ---------------------------------------------------------------------- */
