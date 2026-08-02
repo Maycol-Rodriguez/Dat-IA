@@ -1,9 +1,11 @@
 """Recalcula expected_result contra la BD y escribe una copia del golden set.
 
-Nunca modifica `tests/evaluation/datasets/dat_ia_golden_v2.jsonl`: lee el
+Nunca modifica `tests/evaluation/datasets/dat_ia_golden_set_v2.jsonl`: lee el
 archivo canónico, ejecuta cada `reference_sql` en una transacción de solo
 lectura y escribe el resultado en una copia aparte para que el equipo la
-revise antes de reemplazar el archivo canónico a mano.
+revise antes de reemplazar el archivo canónico a mano. La copia queda marcada
+como candidata pendiente de promoción, aunque el baseline de origen ya hubiese
+sido verificado.
 """
 
 from __future__ import annotations
@@ -22,14 +24,18 @@ from scripts.validate_golden_set_references import _json_value
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_PATH = (
-    REPOSITORY_ROOT / "tests" / "evaluation" / "datasets" / "dat_ia_golden_v2.jsonl"
+    REPOSITORY_ROOT
+    / "tests"
+    / "evaluation"
+    / "datasets"
+    / "dat_ia_golden_set_v2.jsonl"
 )
 DEFAULT_OUTPUT_PATH = (
     REPOSITORY_ROOT
     / "tests"
     / "evaluation"
     / "datasets"
-    / "dat_ia_golden_v2_refreshed.jsonl"
+    / "dat_ia_golden_set_v2_refreshed.jsonl"
 )
 
 
@@ -101,6 +107,13 @@ def refresh_expected_results(
 
                     reference["expected_result"]["row_count"] = len(actual_rows)
                     reference["expected_result"]["rows"] = actual_rows
+                    case["metadata"]["quality_status"] = (
+                        "candidate_pending_promotion"
+                    )
+                    case["metadata"]["quality_notes"] = [
+                        "expected_result recalculado automáticamente contra "
+                        "PostgreSQL; requiere revisión antes de promoverse."
+                    ]
                     refreshed_case_ids.append(case_id)
                     output_lines.append(
                         json.dumps(case, ensure_ascii=False, separators=(",", ":"))
