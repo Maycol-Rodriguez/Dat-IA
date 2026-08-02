@@ -297,7 +297,7 @@ kbd {
 
 .result-panel {
   width: 100%;
-  max-width: 620px;
+  max-width: 1000px;
   margin-top: 40px;
 }
 
@@ -553,6 +553,11 @@ kbd {
 .result-table td.numeric, .result-table th.numeric {
   text-align: right;
 }
+
+.result-table td.cell-success { color: var(--success); }
+.result-table td.cell-danger { color: var(--danger); }
+.result-table td.cell-warning { color: var(--warning); }
+.result-table td.cell-faint { color: var(--text-faint); }
 
 .result-table tbody tr:last-child td {
   border-bottom: none;
