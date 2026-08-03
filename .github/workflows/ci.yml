@@ -97,13 +97,22 @@ jobs:
           image_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${IMAGE}")"
           image_version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${IMAGE}")"
 
+          runtime_version="$(
+            docker image inspect \
+              --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              "${IMAGE}" |
+              sed -n 's/^APP_VERSION=//p'
+          )"
+
           test "${image_user}" = "10001:10001"
           test "${image_revision}" = "${GITHUB_SHA}"
           test "${image_version}" = "${VERSION}"
+          test "${runtime_version}" = "${VERSION}"
 
           echo "User: ${image_user}"
           echo "Revision: ${image_revision}"
-          echo "Version: ${image_version}"
+          echo "OCI version: ${image_version}"
+          echo "Runtime version: ${runtime_version}"
 
       - name: Verify Python runtime
         shell: bash
@@ -111,12 +120,27 @@ jobs:
           set -euo pipefail
 
           docker run --rm --interactive --entrypoint python "${IMAGE}" - <<'PY'
+          import os
+
           import chromadb
           import fastapi
           import sqlglot
           import streamlit
           import torch
           import transformers
+
+          from app.main import APP_VERSION, app
+
+          expected_version = os.environ["APP_VERSION"]
+
+          assert APP_VERSION == expected_version, (
+              APP_VERSION,
+              expected_version,
+          )
+          assert app.version == expected_version, (
+              app.version,
+              expected_version,
+          )
 
           assert torch.__version__.endswith("+cpu"), torch.__version__
           assert torch.version.cuda is None, torch.version.cuda
@@ -125,6 +149,9 @@ jobs:
           print("Production imports: OK")
           print(f"PyTorch: {torch.__version__}")
           print(f"CUDA build: {torch.version.cuda}")
+          print(f"APP_VERSION: {APP_VERSION}")
+          print(f"FastAPI version: {app.version}")
+          print("Version contract: OK")
           PY
 
       - name: Verify non-root write permissions
