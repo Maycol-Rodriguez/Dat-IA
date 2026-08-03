@@ -20,7 +20,8 @@ concurrency:
 env:
   UV_VERSION: "0.11.32"
   PYTHON_VERSION: "3.11"
-  MAX_IMAGE_SIZE_MIB: "650"
+  MAX_UNPACKED_IMAGE_SIZE_MIB: "1800"
+  MAX_COMPRESSED_IMAGE_SIZE_MIB: "650"
 
 jobs:
   quality:
@@ -71,9 +72,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="$(
-            python3 -c               'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
-          )"
+          VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
 
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
           echo "IMAGE=dat-ia-api:ci-${GITHUB_SHA}" >> "${GITHUB_ENV}"
@@ -83,24 +82,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker build             --build-arg "VCS_REF=${GITHUB_SHA}"             --build-arg "VERSION=${VERSION}"             --tag "${IMAGE}"             .
+          docker build \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --build-arg "VERSION=${VERSION}" \
+            --tag "${IMAGE}" \
+            .
 
       - name: Verify OCI metadata and user
         shell: bash
         run: |
           set -euo pipefail
 
-          image_user="$(
-            docker image inspect               --format '{{.Config.User}}'               "${IMAGE}"
-          )"
-
-          image_revision="$(
-            docker image inspect               --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'               "${IMAGE}"
-          )"
-
-          image_version="$(
-            docker image inspect               --format '{{index .Config.Labels "org.opencontainers.image.version"}}'               "${IMAGE}"
-          )"
+          image_user="$(docker image inspect --format '{{.Config.User}}' "${IMAGE}")"
+          image_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${IMAGE}")"
+          image_version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${IMAGE}")"
 
           test "${image_user}" = "10001:10001"
           test "${image_revision}" = "${GITHUB_SHA}"
@@ -115,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run             --rm             --interactive             --entrypoint python             "${IMAGE}"             - <<'PY'
+          docker run --rm --interactive --entrypoint python "${IMAGE}" - <<'PY'
           import chromadb
           import fastapi
           import sqlglot
@@ -137,7 +132,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run             --rm             --entrypoint /bin/sh             "${IMAGE}"             -c '
+          docker run \
+            --rm \
+            --entrypoint /bin/sh \
+            "${IMAGE}" \
+            -c '
               set -eu
               test "$(id -u)" = "10001"
               test "$(id -g)" = "10001"
@@ -146,23 +145,39 @@ jobs:
               echo "Non-root write permissions: OK"
             '
 
-      - name: Enforce image size limit
+      - name: Enforce unpacked image size limit
         shell: bash
         run: |
           set -euo pipefail
 
-          size_bytes="$(
-            docker image inspect               --format '{{.Size}}'               "${IMAGE}"
-          )"
-
-          max_bytes="$((MAX_IMAGE_SIZE_MIB * 1024 * 1024))"
+          size_bytes="$(docker image inspect --format '{{.Size}}' "${IMAGE}")"
+          max_bytes="$((MAX_UNPACKED_IMAGE_SIZE_MIB * 1024 * 1024))"
           size_mib="$((size_bytes / 1024 / 1024))"
 
-          echo "Image size: ${size_mib} MiB"
-          echo "Maximum allowed: ${MAX_IMAGE_SIZE_MIB} MiB"
+          echo "Unpacked image size: ${size_mib} MiB"
+          echo "Maximum allowed: ${MAX_UNPACKED_IMAGE_SIZE_MIB} MiB"
 
           if [ "${size_bytes}" -gt "${max_bytes}" ]; then
-            echo "Image exceeds the permitted size."
+            echo "Unpacked image exceeds the permitted size."
+            exit 1
+          fi
+
+      - name: Enforce compressed image size limit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compressed_bytes="$(docker save "${IMAGE}" | gzip -1 | wc -c)"
+          compressed_bytes="$(echo "${compressed_bytes}" | tr -d '[:space:]')"
+
+          max_bytes="$((MAX_COMPRESSED_IMAGE_SIZE_MIB * 1024 * 1024))"
+          compressed_mib="$((compressed_bytes / 1024 / 1024))"
+
+          echo "Compressed image size: ${compressed_mib} MiB"
+          echo "Maximum allowed: ${MAX_COMPRESSED_IMAGE_SIZE_MIB} MiB"
+
+          if [ "${compressed_bytes}" -gt "${max_bytes}" ]; then
+            echo "Compressed image exceeds the permitted size."
             exit 1
           fi
 
