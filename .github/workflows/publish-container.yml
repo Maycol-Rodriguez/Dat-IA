@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - "devops/container-registry"
     tags:
       - "v*.*.*"
   workflow_dispatch:
