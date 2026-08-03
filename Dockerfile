@@ -37,6 +37,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production \
+    APP_VERSION=${VERSION} \
     PATH="/app/.venv/bin:${PATH}" \
     HF_HOME=/app/.cache/huggingface
 
