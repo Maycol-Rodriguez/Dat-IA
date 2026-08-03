@@ -6,6 +6,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_core.documents import Document
 
 from app.main import (
+    APP_VERSION,
     RAGResponse,
     app,
     build_rag_response,
@@ -37,6 +38,7 @@ def test_health_returns_ok() -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["service"] == "dat-ia-api"
+    assert response.json()["version"] == APP_VERSION
 
 
 def test_query_answer_route_uses_langsmith_traceable_wrapper() -> None:

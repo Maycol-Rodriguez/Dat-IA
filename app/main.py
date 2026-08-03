@@ -58,7 +58,7 @@ from transformers import (
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 APP_ENV = os.environ.get("APP_ENV", "test")
-APP_VERSION = "0.1.0"
+APP_VERSION = os.environ.get("APP_VERSION", "0.2.0")
 MODEL = "gemini-3.1-flash-lite-preview"
 EMBED_MODEL = "gemini-embedding-2"
 CHROMA_PATH = "./chroma_db"
