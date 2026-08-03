@@ -23,8 +23,6 @@ dependencies = [
     # --- Modelos HuggingFace (SQLPromptShield + futuro defog/sqlcoder) ---
     "torch==2.4.1",
     "transformers>=4.38.0",
-    "accelerate>=0.30.0",                # Requerido por from_pretrained con device_map
-    "bitsandbytes>=0.43.0",              # Quantización 4-bit para defog/sqlcoder
     # --- Datos y utilidades ---
     "numpy<2.0.0",                       # Soluciona choque de compatibilidad con Torch
     "pandas<=3.0.3",                     # Fijado a <=3.0.3 para evitar la versión 3.0.4 (yanked)
@@ -55,9 +53,9 @@ testpaths = ["tests"]
 addopts = "--basetemp=.pytest_tmp"
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu121" }
+torch = { index = "pytorch-cpu" }
