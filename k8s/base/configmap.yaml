@@ -1,0 +1,10 @@
+﻿apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dat-ia-config
+  labels:
+    app.kubernetes.io/name: dat-ia-api
+    app.kubernetes.io/part-of: dat-ia
+data:
+  APP_ENV: kubernetes
+  APP_VERSION: "0.2.0"

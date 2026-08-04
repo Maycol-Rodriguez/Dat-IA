@@ -1,0 +1,16 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: dat-ia-api
+  labels:
+    app.kubernetes.io/name: dat-ia-api
+    app.kubernetes.io/part-of: dat-ia
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: dat-ia-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

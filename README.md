@@ -142,6 +142,37 @@ La primera construcción puede tardar por las dependencias de PyTorch y el
 modelo de SQLPromptShield. `chroma_data/` es estado local ignorado por Git; la
 base PostgreSQL no se almacena allí.
 
+## Kubernetes
+
+La imagen versionada utilizada por los manifiestos es:
+
+```text
+ghcr.io/maycol-rodriguez/dat-ia:0.2.0
+```
+
+El despliegue incluye `Deployment`, `Service`, `ConfigMap`, Secret local,
+PersistentVolumeClaim, probes, límites de recursos y ejecución sin privilegios.
+
+La guía reproducible y las pruebas de orquestación están en
+[k8s/README.md](k8s/README.md).
+
+Comprobación rápida después del despliegue:
+
+```powershell
+kubectl rollout status `
+    deployment/dat-ia-api `
+    --namespace dat-ia `
+    --timeout=10m
+
+kubectl get `
+    deployment,pod,service,pvc `
+    --namespace dat-ia
+```
+
+El despliegue es válido cuando el Pod está `1/1 Running`, el Deployment está
+disponible, el PVC está `Bound`, `/health` devuelve `status: ok` y `/ready`
+devuelve `database: connected`.
+
 ## Pruebas
 
 Las pruebas unitarias no requieren LangSmith ni ejecutan el golden set:
@@ -189,9 +220,16 @@ reports/             Evidencia de calidad vigente y benchmarks estables
 
 ## CI
 
-GitHub Actions valida Ruff, Pytest, la construcción de Docker y el endpoint
-`/health`. La evaluación LangSmith no forma parte de CI para evitar consumo no
-controlado de cuota y dependencia de servicios externos.
+GitHub Actions ejecuta dos flujos:
+
+- **CI:** valida el lockfile, Ruff, Pytest, construcción de la imagen, contrato
+  de versión, ejecución no root, PyTorch CPU-only, permisos de escritura y
+  límites de tamaño.
+- **Publicación:** analiza vulnerabilidades críticas con Trivy y publica en
+  GHCR imágenes con etiquetas OCI, SBOM, provenance y digest verificable.
+
+La evaluación con modelos externos no forma parte de CI para evitar consumo no
+controlado de cuota.
 
 ## Equipo
 

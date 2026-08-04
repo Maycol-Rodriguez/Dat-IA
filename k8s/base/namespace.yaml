@@ -1,0 +1,7 @@
+﻿apiVersion: v1
+kind: Namespace
+metadata:
+  name: dat-ia
+  labels:
+    app.kubernetes.io/name: dat-ia
+    app.kubernetes.io/part-of: dat-ia
