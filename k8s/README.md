@@ -1,26 +1,21 @@
 # Despliegue de Dat-IA en Kubernetes
 
-Este directorio contiene los manifiestos necesarios para desplegar la API
-Dat-IA 0.2.0 en Kubernetes.
+Guía breve para desplegar y comprobar Dat-IA 0.2.0 en un clúster local `kind`
+sobre Docker Desktop.
 
-El despliegue fue validado localmente utilizando kind sobre Docker Desktop.
+## Recursos desplegados
 
-## Arquitectura
+| Recurso | Propósito |
+|---|---|
+| Namespace `dat-ia` | Aislamiento |
+| Deployment `dat-ia-api` | Administración y autorreparación del Pod |
+| Service `dat-ia-api` | Acceso interno por `ClusterIP` |
+| ConfigMap `dat-ia-config` | Configuración no sensible |
+| Secret `dat-ia-secrets` | Credenciales creadas localmente |
+| PVC `dat-ia-chroma` | Persistencia de ChromaDB |
+| Probes | Inicio, disponibilidad y salud |
 
-El despliegue utiliza los siguientes recursos:
-
-- Namespace `dat-ia`.
-- Deployment `dat-ia-api` con una réplica.
-- Service `ClusterIP` para exponer internamente la API.
-- ConfigMap para configuración no sensible.
-- Secret creado localmente desde `.env`.
-- PersistentVolumeClaim de 2 GiB para ChromaDB.
-- Volumen temporal para la caché de Hugging Face.
-- Startup, readiness y liveness probes.
-- Solicitudes y límites de CPU y memoria.
-- Ejecución como usuario no root `10001:10001`.
-
-La imagen desplegada es:
+La imagen utilizada es:
 
 ```text
 ghcr.io/maycol-rodriguez/dat-ia:0.2.0
@@ -31,31 +26,17 @@ ghcr.io/maycol-rodriguez/dat-ia:0.2.0
 - Docker Desktop en modo Linux containers.
 - `kubectl`.
 - `kind`.
-- Archivo local `.env` con las credenciales requeridas.
-- Acceso a la imagen publicada en GitHub Container Registry.
+- `.env` configurado en la raíz del repositorio.
 
-El archivo `.env` no debe almacenarse en Git.
+El archivo `.env` no se versiona.
 
-## Crear el clúster local
+## 1. Crear el clúster y cargar la imagen
 
 ```powershell
 kind create cluster `
     --name dat-ia `
     --wait 5m
-```
 
-Verificar el clúster:
-
-```powershell
-kubectl cluster-info `
-    --context kind-dat-ia
-
-kubectl get nodes
-```
-
-## Cargar la imagen en kind
-
-```powershell
 $image = "ghcr.io/maycol-rodriguez/dat-ia:0.2.0"
 
 docker pull $image
@@ -65,21 +46,20 @@ kind load docker-image `
     --name dat-ia
 ```
 
-## Crear el Secret
+Verificar:
 
-El Secret se genera directamente desde el archivo local `.env`. Sus valores
-no forman parte de los manifiestos versionados.
+```powershell
+kubectl get nodes
+```
 
-Primero se crea el namespace:
+El nodo debe aparecer como `Ready`.
+
+## 2. Crear el namespace y el Secret
 
 ```powershell
 kubectl apply `
     -f k8s/base/namespace.yaml
-```
 
-Después se crea o actualiza el Secret:
-
-```powershell
 kubectl create secret generic dat-ia-secrets `
     --namespace dat-ia `
     --from-env-file=".env" `
@@ -88,23 +68,25 @@ kubectl create secret generic dat-ia-secrets `
 kubectl apply -f -
 ```
 
-## Aplicar el despliegue
+Los valores del Secret no se guardan en Git.
+
+## 3. Validar y desplegar
 
 ```powershell
 kubectl apply `
+    --dry-run=server `
     -k k8s/base
-```
 
-Esperar a que la API quede disponible:
+kubectl apply `
+    -k k8s/base
 
-```powershell
 kubectl rollout status `
     deployment/dat-ia-api `
     --namespace dat-ia `
     --timeout=10m
 ```
 
-Consultar los recursos:
+Comprobar los recursos:
 
 ```powershell
 kubectl get `
@@ -113,10 +95,46 @@ kubectl get `
     -o wide
 ```
 
-## Acceder a la API
+Resultado requerido:
 
-El Service es de tipo `ClusterIP`. Para acceder desde la computadora local se
-utiliza `port-forward`:
+```text
+Deployment   1/1 disponible
+Pod          1/1 Running, 0 reinicios
+Service      ClusterIP
+PVC          Bound
+```
+
+## 4. Comprobar seguridad y versión
+
+```powershell
+$podName = kubectl get pods `
+    --namespace dat-ia `
+    -l app.kubernetes.io/name=dat-ia-api `
+    -o jsonpath='{.items[0].metadata.name}'
+
+kubectl exec `
+    $podName `
+    --namespace dat-ia `
+    -- id
+
+kubectl get pod `
+    $podName `
+    --namespace dat-ia `
+    -o jsonpath='{.spec.containers[0].image}'
+
+Write-Host
+```
+
+Resultados esperados:
+
+```text
+uid=10001(app) gid=10001(app)
+ghcr.io/maycol-rodriguez/dat-ia:0.2.0
+```
+
+## 5. Comprobar la API
+
+En una segunda terminal:
 
 ```powershell
 kubectl port-forward `
@@ -125,156 +143,117 @@ kubectl port-forward `
     --namespace dat-ia
 ```
 
-Direcciones disponibles:
+En la terminal principal:
 
-- Health: `http://127.0.0.1:8000/health`
-- Readiness: `http://127.0.0.1:8000/ready`
-- Swagger: `http://127.0.0.1:8000/docs`
-- Interfaz web: `http://127.0.0.1:8000/ui/`
+```powershell
+$health = Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8000/health"
 
-## Prueba funcional
+$ready = Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8000/ready"
+
+$health | Format-List
+$ready | Format-List
+```
+
+Resultados requeridos:
+
+```text
+/health -> status: ok, version: 0.2.0
+/ready  -> status: ok, database: connected
+```
+
+## 6. Comprobar el flujo Text-to-SQL
 
 ```powershell
 $body = @{
-    question = "¿Cuántas órdenes se registraron en total?"
+    question = "Cuantas ordenes se registraron en total?"
 } | ConvertTo-Json
 
-Invoke-RestMethod `
+$result = Invoke-RestMethod `
     -Method Post `
     -Uri "http://127.0.0.1:8000/query/answer" `
     -ContentType "application/json; charset=utf-8" `
     -Body $body
+
+[PSCustomObject]@{
+    Status = $result.status
+    SQL    = $result.sql
+    Count  = $result.data.order_count
+} | Format-List
 ```
 
-Durante la validación, Dat-IA generó y ejecutó:
+Resultado de referencia:
 
-```sql
-SELECT COUNT(order_id) AS order_count
-FROM olist_orders_dataset
+```text
+Status : success
+SQL    : SELECT COUNT(order_id) AS order_count FROM olist_orders_dataset
+Count  : 99441
 ```
 
-El resultado fue de **99 441 órdenes**, coincidente con el Golden Set.
+## 7. Comprobar autorreparación y persistencia
 
-## Validaciones realizadas
-
-El despliegue fue comprobado mediante las siguientes evidencias:
-
-- El Deployment completó el rollout correctamente.
-- El Pod quedó en estado `1/1 Running`.
-- El contenedor se ejecutó sin privilegios como `uid=10001` y `gid=10001`.
-- El endpoint `/health` respondió con estado `ok` y versión `0.2.0`.
-- El endpoint `/ready` informó conexión activa con PostgreSQL.
-- La consulta integral `/query/answer` devolvió estado `success`.
-- ChromaDB indexó las 16 tablas del catálogo.
-- SQLPromptShield se cargó correctamente.
-- El PVC `dat-ia-chroma` quedó en estado `Bound`.
-- La interfaz web `/ui/` quedó disponible mediante `port-forward`.
-
-## Prueba de autorreparación y persistencia
-
-Se eliminó manualmente el Pod de la API:
+Esta prueba elimina el Pod, no el Deployment ni el PVC.
 
 ```powershell
-kubectl delete pod `
+$oldPod = kubectl get pods `
+    --namespace dat-ia `
     -l app.kubernetes.io/name=dat-ia-api `
+    -o jsonpath='{.items[0].metadata.name}'
+
+kubectl delete pod `
+    $oldPod `
     --namespace dat-ia
-```
 
-El Deployment creó automáticamente un nuevo Pod:
-
-```powershell
 kubectl wait `
     --for=condition=Ready `
     pod `
     --selector app.kubernetes.io/name=dat-ia-api `
     --namespace dat-ia `
     --timeout=10m
-```
 
-El nuevo Pod recuperó desde el PVC:
-
-- los 16 esquemas almacenados en ChromaDB;
-- una consulta registrada en Query Memory V2.
-
-Los logs del segundo arranque mostraron:
-
-```text
-[startup] ChromaDB: 16 esquemas registrados.
-[startup] Query memory V2: 1 consultas registradas.
-[startup] SQLDatabase conectado (dialecto: postgresql).
-INFO:     Application startup complete.
-```
-
-Esto comprobó la autorreparación del Deployment y la persistencia del estado
-ante el reemplazo del contenedor.
-
-## Validar los manifiestos
-
-Validación local:
-
-```powershell
-kubectl apply `
-    --dry-run=client `
-    -f k8s/base/namespace.yaml
-
-kubectl apply `
-    --dry-run=client `
-    -k k8s/base
-```
-
-Validación contra el servidor:
-
-```powershell
-kubectl apply `
-    --dry-run=server `
-    -f k8s/base/namespace.yaml
-
-kubectl apply `
-    --dry-run=server `
-    -k k8s/base
-```
-
-Comprobar diferencias entre los manifiestos locales y el clúster:
-
-```powershell
-kubectl diff `
-    -k k8s/base
-```
-
-## Revisar logs
-
-```powershell
-kubectl logs `
-    deployment/dat-ia-api `
+$newPod = kubectl get pods `
     --namespace dat-ia `
-    --tail=150
+    -l app.kubernetes.io/name=dat-ia-api `
+    -o jsonpath='{.items[0].metadata.name}'
+
+[PSCustomObject]@{
+    PreviousPod = $oldPod
+    CurrentPod  = $newPod
+    Recreated   = $oldPod -ne $newPod
+} | Format-List
 ```
 
-## Eliminar el despliegue
+`Recreated` debe ser `True`.
+
+Verificar la persistencia:
 
 ```powershell
-kubectl delete `
-    -k k8s/base
-
-kubectl delete secret `
-    dat-ia-secrets `
+kubectl get pvc `
+    dat-ia-chroma `
     --namespace dat-ia
 
-kubectl delete namespace dat-ia
+kubectl logs `
+    $newPod `
+    --namespace dat-ia `
+    --tail=100 |
+Select-String `
+    -Pattern `
+    'ChromaDB:|Query memory V2:|SQLDatabase|Application startup'
 ```
 
-Para eliminar también el clúster local:
+El PVC debe continuar `Bound`. El nuevo Pod debe recuperar los 16 esquemas de
+ChromaDB y al menos una consulta de Query Memory V2.
+
+## 8. Eliminar el entorno
 
 ```powershell
 kind delete cluster `
     --name dat-ia
 ```
 
-## Consideraciones
+## Alcance
 
-- El despliegue actual es local y fue validado sobre kind.
-- El Service es interno (`ClusterIP`) y se accede mediante `kubectl port-forward`.
-- Los secretos no se almacenan en Git.
-- LangSmith permanece desactivado en esta configuración.
-- La advertencia de Hugging Face por solicitudes sin autenticación no impidió
-  la descarga ni la carga de SQLPromptShield.
+Este despliegue demuestra orquestación local, autorreparación, persistencia,
+probes, límites de recursos y ejecución sin privilegios. No expone Dat-IA
+públicamente en Internet; el acceso local se realiza con `kubectl port-forward`.
