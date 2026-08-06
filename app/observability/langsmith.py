@@ -26,7 +26,7 @@ from langsmith import Client, traceable
 
 REDACTED_VALUE = "[REDACTED]"
 MAX_SANITIZE_DEPTH = 10
-DEFAULT_LANGSMITH_PROJECT = "dat_ia_test"
+DEFAULT_LANGSMITH_PROJECT = "dat_ia_prd"
 DEFAULT_LANGSMITH_TRACING_SAMPLING_RATE = 1.0
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
