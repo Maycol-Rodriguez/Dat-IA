@@ -340,7 +340,7 @@ class RAGResponse(BaseModel):
     confidence_note: str
     status: str
     tool_logs: list[dict[str, Any]] | None = None
-    source_schema: str
+    source_schema: str = ""
 
 
 class SHIELDResponse(BaseModel):
