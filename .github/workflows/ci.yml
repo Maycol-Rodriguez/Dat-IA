@@ -154,6 +154,22 @@ jobs:
           print("Version contract: OK")
           PY
 
+      - name: Verify runtime data files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run \
+            --rm \
+            --entrypoint /bin/sh \
+            "${IMAGE}" \
+            -c '
+              set -eu
+              test -f /app/data/ddl.json
+              test -f /app/data/business_rules.json
+              echo "Runtime data files: OK"
+            '
+
       - name: Verify non-root write permissions
         shell: bash
         run: |
