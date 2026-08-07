@@ -58,7 +58,10 @@ def test_langsmith_uses_shared_test_defaults(
     monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
     monkeypatch.delenv("LANGSMITH_TRACING_SAMPLING_RATE", raising=False)
 
-    assert langsmith_observability.langsmith_project_name() == "dat_ia_test"
+    # DEFAULT_LANGSMITH_PROJECT pasó a "dat_ia_prd" en
+    # 3da238f ("cambio tag en langsmith y otros menores"); esta aserción
+    # había quedado sin actualizar.
+    assert langsmith_observability.langsmith_project_name() == "dat_ia_prd"
     assert langsmith_observability.langsmith_tracing_sampling_rate() == 1.0
 
 
