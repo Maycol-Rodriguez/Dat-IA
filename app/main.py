@@ -340,6 +340,7 @@ class RAGResponse(BaseModel):
     confidence_note: str
     status: str
     tool_logs: list[dict[str, Any]] | None = None
+    source_schema: str
 
 
 class SHIELDResponse(BaseModel):
@@ -1249,6 +1250,8 @@ def build_rag_response(
 
     parsed: RAGResponse = rag_llm.invoke(augmented_prompt)
 
+    parsed.source_schema = ddl
+
     if "i do not know" in parsed.sql.lower():
         parsed = parsed.model_copy(update={"sources": ""})
 
@@ -1357,7 +1360,7 @@ def generate_validated_sql(
         # string exacto que se validó.
         rag_response = rag_response.model_copy(update={"sql": validation.sql})
 
-        verdict = judge_sql_stage(optimized_query, rag_response.sql, judge_llm)
+        verdict = judge_sql_stage(optimized_query, rag_response.sql, judge_llm, source_schema=rag_response.source_schema,)
         if verdict.is_valid and verdict.answers_question:
             return rag_response, verdict, attempt
 
@@ -1569,9 +1572,10 @@ def judge_sql_stage(
     optimized_query: OptimizedQuery,
     sql: str,
     llm: Any,
+    source_schema: str = "",
 ) -> SqlVerdict:
     """Ejecuta el juez LLM dentro del árbol de trazas."""
-    return judge_sql(optimized_query, sql, llm)
+    return judge_sql(optimized_query, sql, llm, source_schema=source_schema)
 
 
 @traceable_stage(

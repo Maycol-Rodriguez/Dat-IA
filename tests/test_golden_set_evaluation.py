@@ -18,12 +18,12 @@ from app.evaluation import (
 
 def test_canonical_golden_set_has_thirty_complete_cases() -> None:
     cases = load_golden_set()
-    monthly_revenue = cases[-1]["reference_outputs"]["expected_result"]
+    monthly_revenue = cases[-6]["reference_outputs"]["expected_result"]
 
-    assert len(cases) == 30
-    assert len({case["case_id"] for case in cases}) == 30
+    assert len(cases) == 35
+    assert len({case["case_id"] for case in cases}) == 35
     assert cases[0]["inputs"]["question"].startswith("¿Cuántas órdenes")
-    assert cases[-1]["metadata"]["result_type"] == "time_series"
+    assert cases[-6]["metadata"]["result_type"] == "time_series"
     assert all(
         "comparison_mode"
         not in case["reference_outputs"]["expected_result"]
@@ -223,9 +223,9 @@ def test_sync_uses_stable_ids_and_creates_all_examples() -> None:
     summary = sync_golden_set(client, cases=cases)
 
     assert summary["dataset_created"] is True
-    assert summary["created"] == 30
-    assert len(client.created_examples) == 30
-    assert len({example["id"] for example in client.created_examples}) == 30
+    assert summary["created"] == 35
+    assert len(client.created_examples) == 35
+    assert len({example["id"] for example in client.created_examples}) == 35
     assert all(
         isinstance(example["id"], UUID)
         for example in client.created_examples

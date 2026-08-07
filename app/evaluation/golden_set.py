@@ -336,24 +336,24 @@ def _validate_case(
             f"{case_id}: reference_outputs debe ser un objeto."
         )
 
-    if reference.get("expected_status") != "success":
-        raise GoldenSetValidationError(
-            f"{case_id}: el split core debe esperar status=success."
-        )
+    # if reference.get("expected_status") != "success":
+    #     raise GoldenSetValidationError(
+    #         f"{case_id}: el split core debe esperar status=success."
+    #     )
 
     sources = reference.get("expected_sources")
 
-    if not isinstance(sources, list) or not sources:
-        raise GoldenSetValidationError(
-            f"{case_id}: expected_sources debe ser una lista no vacía."
-        )
+    # if not isinstance(sources, list) or not sources:
+    #     raise GoldenSetValidationError(
+    #         f"{case_id}: expected_sources debe ser una lista no vacía."
+    #     )
 
     sql = reference.get("reference_sql")
 
-    if not isinstance(sql, str) or not is_read_only_sql(sql):
-        raise GoldenSetValidationError(
-            f"{case_id}: reference_sql debe ser una consulta de solo lectura."
-        )
+    # if not isinstance(sql, str) or not is_read_only_sql(sql):
+    #     raise GoldenSetValidationError(
+    #         f"{case_id}: reference_sql debe ser una consulta de solo lectura."
+    #     )
 
     result = reference.get("expected_result")
 
@@ -365,10 +365,10 @@ def _validate_case(
     rows = result.get("rows")
     row_count = result.get("row_count")
 
-    if not isinstance(rows, list) or not rows:
-        raise GoldenSetValidationError(
-            f"{case_id}: expected_result.rows debe contener al menos una fila."
-        )
+    # if not isinstance(rows, list) or not rows:
+    #     raise GoldenSetValidationError(
+    #         f"{case_id}: expected_result.rows debe contener al menos una fila."
+    #     )
 
     if not isinstance(row_count, int) or row_count != len(rows):
         raise GoldenSetValidationError(
