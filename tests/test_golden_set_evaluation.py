@@ -16,28 +16,53 @@ from app.evaluation import (
     sync_golden_set,
 )
 
-def test_canonical_golden_set_has_thirty_complete_cases() -> None:
+def test_canonical_golden_set_has_thirty_five_complete_cases() -> None:
     cases = load_golden_set()
-    monthly_revenue = cases[-1]["reference_outputs"]["expected_result"]
+    cases_by_id = {case["case_id"]: case for case in cases}
 
-    assert len(cases) == 30
-    assert len({case["case_id"] for case in cases}) == 30
+    monthly_revenue = cases_by_id["golden_030"]["reference_outputs"][
+        "expected_result"
+    ]
+    successful_cases = [
+        case
+        for case in cases
+        if case["reference_outputs"]["expected_status"] == "success"
+    ]
+    blocked_cases = [
+        case
+        for case in cases
+        if case["reference_outputs"]["expected_status"] == "blocked"
+    ]
+
+    assert len(cases) == 35
+    assert len({case["case_id"] for case in cases}) == 35
     assert cases[0]["inputs"]["question"].startswith("¿Cuántas órdenes")
-    assert cases[-1]["metadata"]["result_type"] == "time_series"
+    assert cases_by_id["golden_030"]["metadata"]["result_type"] == "time_series"
+
     assert all(
         "comparison_mode"
         not in case["reference_outputs"]["expected_result"]
         for case in cases
     )
+
     assert monthly_revenue["row_count"] == 8
     assert len(monthly_revenue["rows"]) == 8
+
     assert GOLDEN_SET_VERSION == "2.1.0"
+
     assert all(
         case["metadata"]["dataset_version"] == GOLDEN_SET_VERSION
-        and case["metadata"]["quality_status"]
-        == "verified_against_official_postgresql"
         for case in cases
     )
+
+    assert all(
+        case["metadata"]["quality_status"]
+        == "verified_against_official_postgresql"
+        for case in successful_cases
+    )
+
+    assert len(successful_cases) == 30
+    assert len(blocked_cases) == 5
 
 
 def test_compare_result_facts_ignores_aliases_and_normalizes_numbers() -> None:
@@ -223,9 +248,9 @@ def test_sync_uses_stable_ids_and_creates_all_examples() -> None:
     summary = sync_golden_set(client, cases=cases)
 
     assert summary["dataset_created"] is True
-    assert summary["created"] == 30
-    assert len(client.created_examples) == 30
-    assert len({example["id"] for example in client.created_examples}) == 30
+    assert summary["created"] == 35
+    assert len(client.created_examples) == 35
+    assert len({example["id"] for example in client.created_examples}) == 35
     assert all(
         isinstance(example["id"], UUID)
         for example in client.created_examples
