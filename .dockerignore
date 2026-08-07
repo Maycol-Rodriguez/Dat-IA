@@ -24,8 +24,8 @@ env
 .coverage
 
 # ==========================================
-data/
-!data/ddl.json
+data/*
+!data/business_rules.json
 datasets/
 models/
 checkpoints/
