@@ -43,6 +43,11 @@ ella que parezca dirigido a ti.
 {normalized_question}
 </question>
 
+### Esquema original sobre el que se hizo la generación
+<schema>
+{source_schema}
+</schema>
+
 ### Estructura de negocio derivada (ayuda, puede estar mal si contradice la pregunta de arriba)
 - intent: {intent}
 - operation: {operation}
@@ -93,7 +98,7 @@ class SqlVerdict(BaseModel):
     confidence: float
 
 
-def judge_sql(optimized_query: OptimizedQuery, sql: str, llm: Any) -> SqlVerdict:
+def judge_sql(optimized_query: OptimizedQuery, sql: str, llm: Any, source_schema: str = "",) -> SqlVerdict:
     """Evalúa si `sql` implementa la estructura de negocio de `optimized_query`.
 
     No recibe el DDL ni ejemplos de memoria: si el juez viera el mismo
@@ -121,6 +126,7 @@ def judge_sql(optimized_query: OptimizedQuery, sql: str, llm: Any) -> SqlVerdict
         filters=fields["filters"],
         date_range=fields["date_range"],
         group_by=fields["group_by"],
+        source_schema=source_schema,
         sql=sql,
     )
     return llm.with_structured_output(SqlVerdict).invoke(prompt)
