@@ -341,14 +341,14 @@ def _validate_case(
     #         f"{case_id}: el split core debe esperar status=success."
     #     )
 
-    sources = reference.get("expected_sources")
+    # sources = reference.get("expected_sources")
 
     # if not isinstance(sources, list) or not sources:
     #     raise GoldenSetValidationError(
     #         f"{case_id}: expected_sources debe ser una lista no vacía."
     #     )
 
-    sql = reference.get("reference_sql")
+    # sql = reference.get("reference_sql")
 
     # if not isinstance(sql, str) or not is_read_only_sql(sql):
     #     raise GoldenSetValidationError(
