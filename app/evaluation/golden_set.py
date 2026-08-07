@@ -13,7 +13,7 @@ from typing import Any
 
 from langsmith import Client
 
-GOLDEN_SET_DATASET_NAME = "dat_ia_test_golden_v2"
+GOLDEN_SET_DATASET_NAME = "dat_ia_prd_golden_v2"
 GOLDEN_SET_VERSION = "2.1.0"
 DEFAULT_GOLDEN_SET_PATH = (
     Path(__file__).resolve().parents[2]
@@ -430,11 +430,7 @@ def _normalize_sources(value: Any) -> set[str]:
     else:
         return set()
 
-    return {
-        str(item).strip().casefold()
-        for item in values
-        if str(item).strip()
-    }
+    return {str(item).strip().casefold() for item in values if str(item).strip()}
 
 
 def _result_comparison_contract(
@@ -642,9 +638,7 @@ def _normalize_uuid(value: str) -> str | None:
 def _normalize_text(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     without_accents = "".join(
-        character
-        for character in decomposed
-        if not unicodedata.combining(character)
+        character for character in decomposed if not unicodedata.combining(character)
     )
     with_spaces = re.sub(r"[_\s]+", " ", without_accents)
     return with_spaces.strip()
