@@ -44,14 +44,21 @@ def test_query_json_returns_tool_logs(monkeypatch) -> None:
             tabla=["ventas"],
             descripcion=["ventas"],
             distance=[0.1],
+            politicas=[[]],
         )
 
     monkeypatch.setattr(main_module, "retrieve_ddl_context", fake_retrieve_ddl_context)
 
     def fake_build_rag_response(
-        question, ddl, optimized_query=None, memory_examples=None, tool_logs=None
+        question,
+        ddl,
+        optimized_query=None,
+        memory_examples=None,
+        tool_logs=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = (question, ddl, optimized_query, memory_examples)
+        _ = (question, ddl, optimized_query, memory_examples, table_policies, business_rules_text)
         return main_module.RAGResponse(
             sql="SELECT 1 AS result;",
             sources="ventas",

@@ -374,6 +374,11 @@ def _build_corrected_entries(
                 "nombre": table,
                 "descripcion": description,
                 "ddl": corrected_ddl,
+                # Las políticas viven fuera de `descripcion` desde que se
+                # separaron a este campo: este script solo sincroniza
+                # estructura y catálogos contra PostgreSQL, nunca las toca.
+                # Una tabla nueva (sin `legacy`) arranca sin políticas.
+                "politicas": list(legacy.get("politicas", [])) if legacy else [],
             }
         )
 

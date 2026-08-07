@@ -1,5 +1,6 @@
 import pytest
 
+from app.context.business_rules import match_business_rules
 from app.optimizer.query_optimizer import (
     _build_optimizer_prompt,
     _optimized_query_from_payload,
@@ -427,8 +428,15 @@ def test_optimizer_prefers_llm_metric_over_rules_when_valid() -> None:
     # metric ganador es de otro dominio, las tablas deben seguir a la
     # métrica, no al fallback aislado.
     assert result.context == ["incidencias"]
+    # Pero el filtro "resolved" sigue viniendo de las reglas (ver el
+    # comentario de CLAUDE.md sobre filters) y `delivery_incidents` no
+    # tiene una columna `resolved` — solo `resolved_date`/`resolution_type`.
+    # Sin `customer_support_tickets`, el filtro quedaría sin ninguna tabla
+    # donde aplicarse. _tables_required_by_filters agrega la tabla del
+    # filtro sin desplazar la que ya trajo el metric ganador.
     assert result.suggested_tables == [
         "delivery_incidents",
+        "customer_support_tickets",
     ]
 
 
@@ -650,3 +658,226 @@ def test_payload_optimizer_falls_back_to_rules_when_llm_operation_invalid() -> N
     )
 
     assert result.operation == "count"
+
+
+# ---------------------------------------------------------------------------
+# Regresión: tablas que las reglas globales de negocio (business_rules.json)
+# deben forzar en `suggested_tables` aunque el vocabulario de la pregunta
+# nunca las mencione. Reproduce, sin LLM ni Chroma, el hueco de recuperación
+# medido en reports/dat_ia_golden_set_v2_latest.md para golden_013/014/016/
+# 021/024/028: la búsqueda semántica sola nunca las trae porque no hay
+# nada en la pregunta que se les parezca (nadie dice "traducción" al
+# preguntar por categorías).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("question", "required_table"),
+    [
+        (
+            "¿Cuáles son los 5 estados con más órdenes entregadas?",
+            "olist_customers_dataset",
+        ),
+        (
+            "¿Cuáles son las 5 categorías con más ítems vendidos en órdenes entregadas?",
+            "olist_products_dataset",
+        ),
+        (
+            "¿Cuáles son las 5 categorías con más ítems vendidos en órdenes entregadas?",
+            "product_category_name_translation",
+        ),
+        (
+            "¿Cuáles son los 5 estados con mayor flete promedio por ítem entregado?",
+            "olist_customers_dataset",
+        ),
+        (
+            "¿Cuántos compradores realizaron más de una orden entregada?",
+            "olist_customers_dataset",
+        ),
+        (
+            "¿Cuáles son las 5 categorías de producto con más devoluciones?",
+            "olist_products_dataset",
+        ),
+        (
+            "¿Cuáles son las 5 categorías de producto con más devoluciones?",
+            "product_category_name_translation",
+        ),
+        (
+            "¿Cuáles son los 5 estados de vendedores con más registros de "
+            "inventario bajo el punto de reorden?",
+            "olist_sellers_dataset",
+        ),
+    ],
+)
+def test_business_rules_force_required_tables_missed_by_keyword_rules(
+    question: str,
+    required_table: str,
+) -> None:
+    result = optimize_query_rule_based(question)
+
+    assert required_table in result.suggested_tables
+
+
+def test_business_rules_do_not_add_customers_when_seller_state_applies() -> None:
+    """golden_028: "estados de vendedores" debe traer sellers, no customers
+    (tablas_alternativas reemplaza, no suma, cuando el patrón coincide)."""
+    result = optimize_query_rule_based(
+        "¿Cuáles son los 5 estados de vendedores con más registros de "
+        "inventario bajo el punto de reorden?"
+    )
+
+    assert "olist_sellers_dataset" in result.suggested_tables
+    assert "olist_customers_dataset" not in result.suggested_tables
+
+
+def test_business_rules_do_not_trigger_on_support_ticket_categories() -> None:
+    """golden_018: "categoría" de tickets de soporte no debe activar la
+    regla `categorias_producto` (falso positivo detectado durante el
+    diseño de la regla). Se verifica contra `match_business_rules`
+    directamente: la vía preexistente y no relacionada que también
+    arrastraba `product_category_name_translation` (`_detect_group_by`
+    matcheando el literal "por categoria" dentro de "tickets hay por
+    categoría") se corrigió aparte en
+    `test_category_group_by_does_not_pull_product_tables_for_support_tickets`,
+    más abajo — acá solo se comprueba el módulo de reglas de negocio en
+    aislamiento."""
+    matched = match_business_rules(
+        "¿Cuántos tickets hay por categoría y qué porcentaje fue resuelto?"
+    )
+
+    assert not any(rule.id == "categorias_producto" for rule in matched)
+
+
+# ---------------------------------------------------------------------------
+# Punto 2: pregunta original vs. normalizada para generación, unión (no
+# override) de suggested_tables en el camino LLM, tablas requeridas por
+# filtro, y el bug de "category" en group_by que se descubrió al validar
+# el punto anterior en la misma función.
+# ---------------------------------------------------------------------------
+
+
+def test_category_group_by_does_not_pull_product_tables_for_support_tickets() -> None:
+    """golden_018: el literal "por categoria" dentro de "tickets hay por
+    categoría" seguía disparando group_by=["category"], y
+    `_detect_context_and_tables` traducía eso en
+    `product_category_name_translation` sin que la pregunta tuviera nada
+    que ver con productos. El group_by se conserva (es una señal válida de
+    agrupación sobre la columna `category` de customer_support_tickets);
+    solo se corrige qué tablas dispara."""
+    result = optimize_query_rule_based(
+        "¿Cuántos tickets hay por categoría y qué porcentaje fue resuelto?"
+    )
+
+    assert result.group_by == ["category"]
+    assert result.suggested_tables == ["customer_support_tickets"]
+    assert "product_category_name_translation" not in result.suggested_tables
+    assert "olist_products_dataset" not in result.suggested_tables
+
+
+def test_rule_based_optimizer_still_pulls_product_tables_for_real_categories() -> None:
+    """Contraprueba de la anterior: una pregunta que sí habla de categorías
+    de producto (sin mención de tickets/soporte) debe seguir trayendo las
+    tablas de categoría — el guard no debe apagar el caso legítimo."""
+    result = optimize_query_rule_based(
+        "¿Cuál fue el ingreso total por categoría de producto?"
+    )
+
+    assert "olist_products_dataset" in result.suggested_tables
+    assert "product_category_name_translation" in result.suggested_tables
+
+
+def test_llm_path_unions_suggested_tables_instead_of_overriding() -> None:
+    """golden_022: antes, si las reglas encontraban CUALQUIER tabla (aunque
+    incompleta), las sugerencias del LLM se descartaban enteras vía `or`.
+    Acá las reglas locales solo encuentran las tablas de reseñas/categoría
+    (por las métricas "review_score" detectadas); la tabla de ítems —que
+    conecta reseñas con categorías— solo la propuso el LLM."""
+    result = _optimized_query_from_payload(
+        original_question=(
+            "¿Cuáles son las 5 categorías con mejor calificación promedio, "
+            "considerando al menos 100 reseñas?"
+        ),
+        payload={
+            "intent": "ranking",
+            "operation": "rank_desc",
+            "normalized_question": (
+                "categorias con mejor calificacion promedio con al menos "
+                "100 resenas"
+            ),
+            "suggested_tables": [
+                "olist_order_items_dataset",
+                "olist_products_dataset",
+                "olist_order_reviews_dataset",
+            ],
+        },
+    )
+
+    assert "olist_order_items_dataset" in result.suggested_tables
+    assert "olist_products_dataset" in result.suggested_tables
+    assert "olist_order_reviews_dataset" in result.suggested_tables
+
+
+def test_optimized_query_from_payload_adds_table_required_by_filter() -> None:
+    """Mismo mecanismo que en el camino por reglas, pero pasando por
+    `_optimized_query_from_payload`: `filters` siempre viene de
+    `fallback.filters` (las reglas determinísticas), nunca del payload del
+    LLM, así que la tabla que ese filtro requiere debe sumarse igual aunque
+    el LLM no la haya propuesto."""
+    result = _optimized_query_from_payload(
+        original_question="¿Cuántas órdenes hay en SP?",
+        payload={
+            "intent": "count",
+            "normalized_question": "cuantas ordenes hay en sp",
+            "suggested_tables": ["olist_orders_dataset"],
+        },
+    )
+
+    assert result.filters and result.filters[0].field == "state"
+    assert "olist_customers_dataset" in result.suggested_tables
+
+
+@pytest.mark.parametrize(
+    ("question", "required_table"),
+    [
+        ("¿Cuántas órdenes hay en SP?", "olist_customers_dataset"),
+        ("¿Cuántas órdenes fueron canceladas?", "olist_orders_dataset"),
+        (
+            "¿Cuántas órdenes se pagaron con tarjeta de crédito?",
+            "olist_order_payments_dataset",
+        ),
+        (
+            "¿Cuántos tickets de soporte permanecen sin resolver?",
+            "customer_support_tickets",
+        ),
+        (
+            "¿Cuántos tickets tienen prioridad crítica?",
+            "customer_support_tickets",
+        ),
+    ],
+)
+def test_rule_based_optimizer_adds_table_required_by_filter(
+    question: str,
+    required_table: str,
+) -> None:
+    """`_detect_filters` ya detecta estos filtros; lo nuevo es que la tabla
+    donde se aplican queda garantizada en `suggested_tables` aunque el
+    vocabulario de la pregunta no la sugiera por otra vía (ej. "en SP" sin
+    la palabra "estado" no activa la regla global `geografia_estado`)."""
+    result = optimize_query_rule_based(question)
+
+    assert result.filters, "la pregunta debería producir al menos un filtro"
+    assert required_table in result.suggested_tables
+
+
+def test_generate_validated_sql_receives_original_question_not_normalized(
+    monkeypatch,
+) -> None:
+    """query_answer/query_json deben pasar `original_question` al generador,
+    no `normalized_question`: una paráfrasis del optimizer puede desviar la
+    intención (golden_008). Se prueba a nivel de API en test_api.py; acá se
+    deja constancia de que `OptimizedQuery` distingue ambos campos y que
+    nada dentro del optimizer los confunde."""
+    result = optimize_query_rule_based("¿Cuántos tickets de soporte permanecen sin resolver?")
+
+    assert result.original_question == (
+        "¿Cuántos tickets de soporte permanecen sin resolver?"
+    )
+    assert result.normalized_question != result.original_question
