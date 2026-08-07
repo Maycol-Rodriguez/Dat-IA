@@ -14,6 +14,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.context.business_rules import match_business_rules
+from app.context.business_rules import required_tables as _business_rule_tables
+
 ALLOWED_INTENTS = {
     "ranking",
     "count",
@@ -155,6 +158,21 @@ def optimize_query_rule_based(question: str) -> OptimizedQuery:
         metrics=metrics,
         group_by=group_by,
     )
+    suggested_tables = _unique(
+        suggested_tables + _tables_required_by_filters(filters)
+    )
+
+    # Reglas globales (data/business_rules.json): deciden tablas que ni las
+    # métricas/group_by ni la búsqueda semántica pueden inferir por sí
+    # solas, porque el vocabulario de la pregunta no las menciona (ej.
+    # "categorías" no sugiere por sí mismo la tabla de traducción). Solo
+    # suman tablas, nunca reemplazan las ya detectadas.
+    matched_business_rules = match_business_rules(cleaned_question)
+    suggested_tables = _unique(
+        suggested_tables
+        + _business_rule_tables(matched_business_rules, cleaned_question)
+    )
+
     normalized_question = _build_normalized_question(
         question=cleaned_question,
         intent=intent,
@@ -319,15 +337,28 @@ def _optimized_query_from_payload(
         group_by=group_by,
     )
     context = rule_context or _ensure_text_list(payload.get("context"))
-    suggested_tables = (
-        rule_suggested_tables
-        or _ensure_text_list(payload.get("suggested_tables"))
+    # Unión, no `or`: antes, si las reglas encontraban CUALQUIER tabla
+    # (aunque incompleta), las sugerencias del LLM se descartaban enteras.
+    # Con una pregunta que cruza dominios (ej. reseñas + categorías), las
+    # reglas locales pueden traer solo una parte y el LLM la tabla que
+    # falta — las dos fuentes deben sumar, no competir.
+    suggested_tables = rule_suggested_tables + _ensure_text_list(
+        payload.get("suggested_tables")
+    )
+
+    # Mismo criterio que en optimize_query_rule_based: las reglas globales
+    # solo agregan tablas, nunca reemplazan las que ya eligió el LLM o las
+    # reglas locales.
+    matched_business_rules = match_business_rules(original_question)
+    suggested_tables = suggested_tables + _business_rule_tables(
+        matched_business_rules, original_question
     )
 
     # Un filtro incorrecto cambia el significado de la consulta y puede
     # impedir una recuperación válida. Solo se conservan filtros detectados
     # explícitamente por las reglas determinísticas.
     filters = fallback.filters
+    suggested_tables = suggested_tables + _tables_required_by_filters(filters)
     date_range = _build_date_range_from_payload(
         payload.get("date_range"),
         fallback.date_range,
@@ -870,6 +901,31 @@ def _detect_filters(original_question: str, normalized_text: str) -> list[QueryF
     return filters
 
 
+# Tabla que hay que recuperar para poder aplicar cada tipo de filtro. Un
+# filtro puede detectarse sin que la palabra gatillo de una regla de
+# negocio esté presente (ej. un código de estado suelto como "SP", sin la
+# palabra "estado"), así que esto es complementario a
+# `app.context.business_rules`, no redundante con ella.
+_FILTER_FIELD_TABLES: dict[str, tuple[str, ...]] = {
+    "state": ("olist_customers_dataset",),
+    "order_status": ("olist_orders_dataset",),
+    "payment_type": ("olist_order_payments_dataset",),
+    "resolved": ("customer_support_tickets",),
+    "priority": ("customer_support_tickets",),
+}
+
+
+def _tables_required_by_filters(filters: list[QueryFilter]) -> list[str]:
+    tables: list[str] = []
+
+    for query_filter in filters:
+        for table in _FILTER_FIELD_TABLES.get(query_filter.field, ()):
+            if table not in tables:
+                tables.append(table)
+
+    return tables
+
+
 def _detect_context_and_tables(
     *,
     normalized_text: str,
@@ -924,7 +980,13 @@ def _detect_context_and_tables(
         context.append("precios")
         tables.append("product_price_history")
 
-    if "category" in group_by:
+    # "category" en group_by puede venir de una pregunta de soporte
+    # ("tickets por categoría" matchea el literal "por categoria" en
+    # _detect_group_by, pero customer_support_tickets ya tiene su propia
+    # columna `category` — no hay que traer la tabla de traducción de
+    # categorías de producto). El group_by en sí se conserva (es una señal
+    # válida de agrupación); solo se filtra qué tablas dispara.
+    if "category" in group_by and not support_metrics.intersection(metrics):
         tables.extend(
             [
                 "olist_products_dataset",

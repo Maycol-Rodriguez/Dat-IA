@@ -851,10 +851,12 @@ def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
         "olist_orders_dataset": (
             "Órdenes y fechas de compra.",
             "CREATE TABLE olist_orders_dataset (...);",
+            ["ESTADO: una orden entregada cumple order_status = 'delivered'."],
         ),
         "olist_order_items_dataset": (
             "Ítems, precios e ingresos.",
             "CREATE TABLE olist_order_items_dataset (...);",
+            [],
         ),
     }
 
@@ -875,7 +877,7 @@ def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
                     "metadatas": [],
                 }
 
-            description, ddl = table_data[
+            description, ddl, politicas = table_data[
                 table
             ]
 
@@ -886,6 +888,9 @@ def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
                     {
                         "nombre": table,
                         "ddl": ddl,
+                        "politicas": main_module._encode_policies_for_metadata(
+                            politicas
+                        ),
                     }
                 ],
             }
@@ -953,6 +958,12 @@ def test_retrieve_ddl_context_uses_exact_suggested_tables() -> None:
         in result.ddl
     )
     assert "otra_tabla" not in result.tabla
+    # `politicas` viaja como metadata de Chroma (JSON serializado) y llega
+    # decodificada, alineada por índice con `tabla`.
+    assert result.politicas == [
+        ["ESTADO: una orden entregada cumple order_status = 'delivered'."],
+        [],
+    ]
 
 
 def test_retrieve_ddl_context_deduplicates_semantic_table() -> None:
@@ -998,6 +1009,9 @@ def test_retrieve_ddl_context_deduplicates_semantic_table() -> None:
                             "ddl": (
                                 "CREATE TABLE "
                                 "deliveries (...);"
+                            ),
+                            "politicas": main_module._encode_policies_for_metadata(
+                                ["GRANULARIDAD: una entrega por orden."]
                             ),
                         }
                     ],
@@ -1083,9 +1097,19 @@ def test_retrieve_ddl_context_deduplicates_semantic_table() -> None:
     assert result.ddl.count(
         "CREATE TABLE deliveries"
     ) == 1
+    # "carriers" llega por el camino exacto (sin políticas en este fake) y
+    # "deliveries" por el camino semántico, recuperado vía
+    # `_get_suggested_table_embeddings` dentro de `retrieve_ddl_context`:
+    # ambos deben quedar alineados con `result.tabla`.
+    assert result.politicas == [
+        [],
+        ["GRANULARIDAD: una entrega por orden."],
+    ]
 
 
-def test_query_json_uses_optimized_question(monkeypatch) -> None:
+def test_query_json_uses_normalized_for_retrieval_and_original_for_generation(
+    monkeypatch,
+) -> None:
     from app import main as main_module
 
     captured = {}
@@ -1119,8 +1143,10 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
         optimized_query=None,
         memory_examples=None,
         tool_logs=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = optimized_query
+        _ = optimized_query, table_policies, business_rules_text
         captured["generation_question"] = question
         captured["ddl"] = ddl
 
@@ -1150,11 +1176,14 @@ def test_query_json_uses_optimized_question(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert body["status"] == "success"
+    # Retrieval usa la pregunta normalizada (estable, en español).
     assert captured["retrieval_query"] == (
         "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega."
     )
+    # Generación usa la pregunta original tal cual la escribió el usuario,
+    # no la paráfrasis del optimizer.
     assert captured["generation_question"] == (
-        "Listar transportistas ordenados por mayor tasa de cumplimiento de entrega."
+        "Que empresa de transporte tiene mejor cumplimiento?"
     )
     assert captured["distance_threshold"] == 0.7
 
@@ -1205,8 +1234,10 @@ def _mock_query_json_memory_pipeline(
         optimized_query=None,
         memory_examples=None,
         tool_logs=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = question, ddl, optimized_query, memory_examples, tool_logs
+        _ = question, ddl, optimized_query, memory_examples, tool_logs, table_policies, business_rules_text
         return main_module.RAGResponse(
             sql=rag_sql,
             sources=rag_sources,
@@ -1531,8 +1562,10 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
         optimized_query=None,
         memory_examples=None,
         feedback=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = question, ddl, optimized_query, memory_examples, feedback
+        _ = question, ddl, optimized_query, memory_examples, feedback, table_policies, business_rules_text
         return main_module.RAGResponse(
             sql="SELECT carrier_name FROM carriers ORDER BY on_time_rate DESC LIMIT 1;",
             sources="carriers",
@@ -1784,8 +1817,10 @@ def test_query_answer_marks_matching_memory_without_duplicate(
         optimized_query=None,
         memory_examples=None,
         feedback=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = feedback, optimized_query
+        _ = feedback, optimized_query, table_policies, business_rules_text
         captured["generation_question"] = question
         captured["ddl"] = ddl
         captured["memory_examples"] = memory_examples
@@ -2040,8 +2075,10 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
         optimized_query=None,
         memory_examples=None,
         feedback=None,
+        table_policies="",
+        business_rules_text="",
     ):
-        _ = question, ddl, optimized_query, memory_examples, feedback
+        _ = question, ddl, optimized_query, memory_examples, feedback, table_policies, business_rules_text
         return main_module.RAGResponse(
             sql="I do not know",
             sources="",
