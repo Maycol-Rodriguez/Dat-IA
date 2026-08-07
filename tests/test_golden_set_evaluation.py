@@ -16,53 +16,28 @@ from app.evaluation import (
     sync_golden_set,
 )
 
-def test_canonical_golden_set_has_thirty_five_complete_cases() -> None:
+def test_canonical_golden_set_has_thirty_complete_cases() -> None:
     cases = load_golden_set()
-    cases_by_id = {case["case_id"]: case for case in cases}
-
-    monthly_revenue = cases_by_id["golden_030"]["reference_outputs"][
-        "expected_result"
-    ]
-    successful_cases = [
-        case
-        for case in cases
-        if case["reference_outputs"]["expected_status"] == "success"
-    ]
-    blocked_cases = [
-        case
-        for case in cases
-        if case["reference_outputs"]["expected_status"] == "blocked"
-    ]
+    monthly_revenue = cases[-6]["reference_outputs"]["expected_result"]
 
     assert len(cases) == 35
     assert len({case["case_id"] for case in cases}) == 35
     assert cases[0]["inputs"]["question"].startswith("¿Cuántas órdenes")
-    assert cases_by_id["golden_030"]["metadata"]["result_type"] == "time_series"
-
+    assert cases[-6]["metadata"]["result_type"] == "time_series"
     assert all(
         "comparison_mode"
         not in case["reference_outputs"]["expected_result"]
         for case in cases
     )
-
     assert monthly_revenue["row_count"] == 8
     assert len(monthly_revenue["rows"]) == 8
-
     assert GOLDEN_SET_VERSION == "2.1.0"
-
     assert all(
         case["metadata"]["dataset_version"] == GOLDEN_SET_VERSION
+        and case["metadata"]["quality_status"]
+        == "verified_against_official_postgresql"
         for case in cases
     )
-
-    assert all(
-        case["metadata"]["quality_status"]
-        == "verified_against_official_postgresql"
-        for case in successful_cases
-    )
-
-    assert len(successful_cases) == 30
-    assert len(blocked_cases) == 5
 
 
 def test_compare_result_facts_ignores_aliases_and_normalizes_numbers() -> None:

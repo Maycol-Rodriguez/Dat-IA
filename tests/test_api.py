@@ -627,6 +627,7 @@ def test_build_rag_response_returns_llm_output(monkeypatch) -> None:
         sources="carriers",
         confidence_note="Usa la métrica on_time_rate.",
         status="success",
+        source_schema="CREATE TABLE carriers ..."
     )
     fake_llm = FakeRagLlm(fake_response)
     monkeypatch.setattr(main_module, "rag_llm", fake_llm)
@@ -648,6 +649,7 @@ def test_build_rag_response_includes_optimizer_structure_in_prompt(monkeypatch) 
         sources="carriers",
         confidence_note="Usa la métrica on_time_rate.",
         status="success",
+        source_schema="CREATE TABLE carriers ...",
     )
     fake_llm = FakeRagLlm(fake_response)
     monkeypatch.setattr(main_module, "rag_llm", fake_llm)
@@ -691,6 +693,7 @@ def test_build_rag_response_includes_validated_memory_examples(
         sources="carriers",
         confidence_note="Usa la métrica on_time_rate.",
         status="success",
+        source_schema="CREATE TABLE carriers ...",
     )
     fake_llm = FakeRagLlm(fake_response)
     monkeypatch.setattr(main_module, "rag_llm", fake_llm)
@@ -752,6 +755,7 @@ def test_build_rag_response_clears_sources_when_llm_does_not_know(monkeypatch) -
         sources="carriers",
         confidence_note="No hay suficiente contexto.",
         status="unknown",
+        source_schema="CREATE TABLE carriers ...",
     )
     monkeypatch.setattr(main_module, "rag_llm", FakeRagLlm(fake_response))
 
@@ -1158,6 +1162,7 @@ def test_query_json_uses_normalized_for_retrieval_and_original_for_generation(
             sources="carriers",
             confidence_note="Usa la métrica on_time_rate.",
             status="success",
+            source_schema="CREATE TABLE carriers ...",
         )
 
     monkeypatch.setattr(main_module, "text_collection", FakeCollection())
@@ -1243,6 +1248,7 @@ def _mock_query_json_memory_pipeline(
             sources=rag_sources,
             confidence_note="Resultado de prueba.",
             status=rag_status,
+            source_schema="CREATE TABLE carriers ...",
         )
 
     monkeypatch.setattr(
@@ -1571,10 +1577,11 @@ def _mock_answer_pipeline(monkeypatch, *, shield_label: str = "SAFE"):
             sources="carriers",
             confidence_note="Usa la métrica on_time_rate.",
             status="success",
+            source_schema="CREATE TABLE carriers ...",
         )
 
-    def fake_judge_sql(optimized_query, sql, llm):
-        _ = optimized_query, sql, llm
+    def fake_judge_sql(optimized_query, sql, llm, source_schema=""):
+        _ = optimized_query, sql, llm, source_schema
         return main_module.SqlVerdict(
             issues=[],
             is_valid=True,
@@ -1833,6 +1840,7 @@ def test_query_answer_marks_matching_memory_without_duplicate(
             sources="carriers",
             confidence_note="Usa on_time_rate.",
             status="success",
+            source_schema="CREATE TABLE carriers ...",
         )
 
     def fake_upsert(collection, record):
@@ -2084,6 +2092,7 @@ def test_query_answer_returns_unknown_status_when_llm_does_not_know(monkeypatch)
             sources="",
             confidence_note="No hay suficiente contexto.",
             status="unknown",
+            source_schema="CREATE TABLE carriers ...",
         )
 
     monkeypatch.setattr(main_module, "build_rag_response", fake_build_rag_response_unknown)
