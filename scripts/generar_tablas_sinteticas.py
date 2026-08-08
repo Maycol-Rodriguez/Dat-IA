@@ -198,8 +198,10 @@ def gen_price_history(items: pd.DataFrame) -> pd.DataFrame:
         for d in dias:
             delta = float(rng.uniform(-0.2, 0.25))
             nuevo = max(0.5, round(precio_actual * (1 + delta), 2))
-            pids.append(prod[i]); sids.append(sell[i])
-            olds.append(round(precio_actual, 2)); news.append(nuevo)
+            pids.append(prod[i])
+            sids.append(sell[i])
+            olds.append(round(precio_actual, 2))
+            news.append(nuevo)
             fechas.append(t0 + pd.Timedelta(days=int(d)) + pd.Timedelta(hours=int(rng.integers(0, 24))))
             motivos.append(rng.choice(razones))
             precio_actual = nuevo
@@ -251,7 +253,10 @@ def gen_promotions(items: pd.DataFrame) -> pd.DataFrame:
 def gen_inventory(items: pd.DataFrame, sellers: pd.DataFrame) -> pd.DataFrame:
     """Inventario por producto-vendedor en centros de distribucion."""
     warehouse_ids = gen_uuids(N_WAREHOUSES)
-    wh_estado = rng.choice(ESTADOS_BR, size=N_WAREHOUSES)
+    # El estado de cada warehouse no se persiste (no hay tabla de dimension), pero la
+    # extraccion se conserva para no alterar el estado del RNG global: quitarla cambiaria
+    # todas las tablas generadas despues de esta.
+    _ = rng.choice(ESTADOS_BR, size=N_WAREHOUSES)
 
     pares = items[["product_id", "seller_id"]].drop_duplicates().reset_index(drop=True)
     sel = pares.iloc[rng.choice(len(pares), size=min(N_INVENTORY_PAIRS, len(pares)), replace=False)]
